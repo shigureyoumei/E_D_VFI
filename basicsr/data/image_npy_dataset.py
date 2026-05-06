@@ -17,6 +17,13 @@ from basicsr.utils import FileClient, imfrombytes, img2tensor, voxel2voxeltensor
 from torch.utils.data.dataloader import default_collate
 
 
+def _sharp_dir(dataroot, split, video):
+    gt_dir = os.path.join(dataroot, split, video, 'gt')
+    if os.path.isdir(gt_dir):
+        return gt_dir, 'gt'
+    return os.path.join(dataroot, split, video, 'sharp'), 'sharp'
+
+
 class GoProEventRecurrentDataset(data.Dataset):
     """GoPro dataset for training recurrent networks for blurry image interpolation.
 
@@ -255,6 +262,159 @@ class GoProEventRecurrentDataset(data.Dataset):
 
     def __len__(self):
         return len(self.blurPairsPath)
+
+
+class GoProRawEventRecurrentDataset(GoProEventRecurrentDataset):
+    """GoPro raw blur/sharp/event dataset for joint deblur and interpolation.
+
+    This variant expects each sequence to contain equal-rate blur and sharp
+    frames, with event files stored in train_event/test_event.
+    """
+
+    def __init__(self, opt):
+        data.Dataset.__init__(self)
+        self.opt = opt
+        self.dataroot = Path(opt['dataroot'])
+        self.m = opt['num_end_interpolation']
+        self.n = opt['num_inter_interpolation']
+        self.num_input_blur = 2
+        self.num_input_gt = 2 * self.m + self.n
+        self.num_bins = self.num_input_gt + 1
+        self.split = 'train' if opt['phase'] == 'train' else 'test'
+        self.norm_voxel = opt.get('norm_voxel', True)
+        self.one_voxel_flg = opt.get('one_voxel_flag', True)
+        self.return_deblur_voxel = False
+
+        train_video_list = [
+            'GOPR0372_07_00', 'GOPR0374_11_01', 'GOPR0378_13_00', 'GOPR0384_11_01', 'GOPR0384_11_04', 'GOPR0477_11_00', 'GOPR0868_11_02', 'GOPR0884_11_00',
+            'GOPR0372_07_01', 'GOPR0374_11_02', 'GOPR0379_11_00', 'GOPR0384_11_02', 'GOPR0385_11_00', 'GOPR0857_11_00', 'GOPR0871_11_01', 'GOPR0374_11_00',
+            'GOPR0374_11_03', 'GOPR0380_11_00', 'GOPR0384_11_03', 'GOPR0386_11_00', 'GOPR0868_11_01', 'GOPR0881_11_00']
+        test_video_list = [
+            'GOPR0384_11_00', 'GOPR0385_11_01', 'GOPR0410_11_00', 'GOPR0862_11_00', 'GOPR0869_11_00', 'GOPR0881_11_01', 'GOPR0384_11_05', 'GOPR0396_11_00',
+            'GOPR0854_11_00', 'GOPR0868_11_00', 'GOPR0871_11_00']
+        video_list = train_video_list if self.split == 'train' else test_video_list
+
+        self.blurPairsPath = []
+        self.gtSeqsPath = []
+        self.eventSeqsPath = []
+        step = self.m + self.n
+
+        for video in video_list:
+            blur_frames = sorted(recursive_glob(rootdir=os.path.join(self.dataroot, self.split, video, 'blur'), suffix='.png'))
+            sharp_dir, sharp_folder = _sharp_dir(self.dataroot, self.split, video)
+            gt_frames = sorted(recursive_glob(rootdir=sharp_dir, suffix='.png'))
+            event_frames = sorted(recursive_glob(rootdir=os.path.join(self.dataroot, self.split + '_event', video), suffix='.npz'))
+            n_sets = (min(len(blur_frames), len(gt_frames)) - self.num_input_gt) // step + 1
+
+            for i in range(max(n_sets, 0)):
+                start = i * step
+                end = start + self.num_input_gt - 1
+                self.blurPairsPath.append([
+                    os.path.join(self.dataroot, self.split, video, 'blur', blur_frames[start]),
+                    os.path.join(self.dataroot, self.split, video, 'blur', blur_frames[end])
+                ])
+                self.gtSeqsPath.append([
+                    os.path.join(self.dataroot, self.split, video, sharp_folder, f)
+                    for f in gt_frames[start:start + self.num_input_gt]
+                ])
+                self.eventSeqsPath.append([
+                    os.path.join(self.dataroot, self.split + '_event', video, f)
+                    for f in event_frames[start:start + self.num_input_gt - 1]
+                ])
+
+        self.file_client = None
+        self.io_backend_opt = opt['io_backend']
+        self.random_reverse = opt.get('random_reverse', False)
+        logger = get_root_logger()
+        logger.info(f'Temporal augmentation: random reverse is {self.random_reverse}.')
+
+    def __getitem__(self, index):
+        if self.file_client is None:
+            self.file_client = FileClient(self.io_backend_opt.pop('type'), **self.io_backend_opt)
+        scale = self.opt['scale']
+        gt_size = self.opt['gt_size']
+
+        image_paths = self.blurPairsPath[index]
+        gt_paths = self.gtSeqsPath[index]
+        event_paths = self.eventSeqsPath[index]
+
+        assert len(gt_paths) == self.num_input_gt, (
+            f'The number of gt file:{len(gt_paths)} is not equal to {self.num_input_gt}')
+        assert len(event_paths) == self.num_input_gt - 1, (
+            f'The number of event file:{len(event_paths)} is not equal to {self.num_input_gt - 1}')
+
+        if self.random_reverse and random.random() < 0.5:
+            image_paths.reverse()
+            gt_paths.reverse()
+
+        img_lqs = []
+        img_gts = []
+        for image_path in image_paths:
+            img_bytes = self.file_client.get(image_path)
+            img_lqs.append(imfrombytes(img_bytes, float32=True))
+        for gt_path in gt_paths:
+            img_bytes = self.file_client.get(gt_path)
+            img_gts.append(imfrombytes(img_bytes, float32=True))
+
+        h_lq, w_lq, _ = img_lqs[0].shape
+        events = [np.load(event_path) for event_path in event_paths]
+        voxels = []
+        if self.one_voxel_flg:
+            all_quad_event_array = np.zeros((0, 4)).astype(np.float32)
+            for event in events:
+                x = event['x'].astype(np.float32)[:, np.newaxis]
+                y = event['y'].astype(np.float32)[:, np.newaxis]
+                t = event['timestamp'].astype(np.float32)[:, np.newaxis]
+                p = event['polarity'].astype(np.float32)[:, np.newaxis]
+                this_quad_event_array = np.concatenate((t, x, y, p), axis=1)
+                all_quad_event_array = np.concatenate((all_quad_event_array, this_quad_event_array), axis=0)
+            voxel = events_to_voxel_grid(all_quad_event_array, num_bins=self.num_bins, width=w_lq, height=h_lq, return_format='HWC')
+            voxels.append(voxel)
+        else:
+            for i in range(len(events)):
+                x = events[i]['x'].astype(np.float32)[:, np.newaxis]
+                y = events[i]['y'].astype(np.float32)[:, np.newaxis]
+                t = events[i]['timestamp'].astype(np.float32)[:, np.newaxis]
+                p = events[i]['polarity'].astype(np.float32)[:, np.newaxis]
+                this_quad_event_array = np.concatenate((t, x, y, p), axis=1)
+                if i == 0:
+                    last_quad_event_array = this_quad_event_array
+                else:
+                    two_quad_event_array = np.concatenate((last_quad_event_array, this_quad_event_array), axis=0)
+                    sub_voxel = events_to_voxel_grid(two_quad_event_array, num_bins=2, width=w_lq, height=h_lq, return_format='HWC')
+                    voxels.append(sub_voxel)
+                    last_quad_event_array = this_quad_event_array
+
+        if gt_size is not None:
+            img_gts, img_lqs, voxels = triple_random_crop(img_gts, img_lqs, voxels, gt_size, scale, gt_paths[0])
+
+        num_lq = len(img_lqs) if isinstance(img_lqs, list) else 1
+        num_gt = len(img_gts) if isinstance(img_gts, list) else 1
+
+        img_lqs.extend(img_gts)
+        img_lqs.extend(voxels) if isinstance(voxels, list) else img_lqs.append(voxels)
+        img_results = augment(img_lqs, self.opt['use_hflip'], self.opt['use_rot'])
+        img_results = img2tensor(img_results)
+
+        img_lqs = torch.stack(img_results[:num_lq], dim=0)
+        img_gts = torch.stack(img_results[num_lq:num_lq + num_gt], dim=0)
+        voxels_list = img_results[num_lq + num_gt:]
+        if self.norm_voxel:
+            for i, voxel in enumerate(voxels_list):
+                voxels_list[i] = voxel_norm(voxel)
+
+        voxels = torch.stack(voxels_list, dim=0)
+        if self.one_voxel_flg:
+            voxels = voxels.squeeze(0)
+            all_voxel = []
+            for i in range(voxels.shape[0] - 1):
+                all_voxel.append(voxels[i:i + 2, :, :])
+            voxels = torch.stack(all_voxel, dim=0)
+
+        blur0_path = image_paths[0]
+        seq = blur0_path.split(f'{self.split}/')[1].split('/')[0]
+        origin_index = os.path.basename(blur0_path).split('.')[0]
+        return {'lq': img_lqs, 'gt': img_gts, 'voxel': voxels, 'seq': seq, 'origin_index': origin_index}
 
 
 class GoProBidirEventRecurrentDataset(data.Dataset):

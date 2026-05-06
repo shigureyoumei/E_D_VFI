@@ -2,8 +2,18 @@ import argparse
 import datetime
 import logging
 import math
+import os
 import random
+import sys
 import time
+
+root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+script_path = os.path.dirname(os.path.abspath(__file__))
+if script_path in sys.path:
+    sys.path.remove(script_path)
+if root_path not in sys.path:
+    sys.path.insert(0, root_path)
+
 import torch
 from os import path as osp
 
