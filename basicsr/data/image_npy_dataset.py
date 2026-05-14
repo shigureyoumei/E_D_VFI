@@ -283,7 +283,8 @@ class GoProRawEventRecurrentDataset(GoProEventRecurrentDataset):
         self.split = 'train' if opt['phase'] == 'train' else 'test'
         self.norm_voxel = opt.get('norm_voxel', True)
         self.one_voxel_flg = opt.get('one_voxel_flag', True)
-        self.return_deblur_voxel = False
+        self.return_deblur_voxel = opt.get('return_deblur_voxel', False)
+        self.return_deblur_voxel = self.return_deblur_voxel and self.one_voxel_flg
 
         train_video_list = [
             'GOPR0372_07_00', 'GOPR0374_11_01', 'GOPR0378_13_00', 'GOPR0384_11_01', 'GOPR0384_11_04', 'GOPR0477_11_00', 'GOPR0868_11_02', 'GOPR0884_11_00',
@@ -402,6 +403,13 @@ class GoProRawEventRecurrentDataset(GoProEventRecurrentDataset):
         if self.norm_voxel:
             for i, voxel in enumerate(voxels_list):
                 voxels_list[i] = voxel_norm(voxel)
+
+        if self.return_deblur_voxel:
+            left_deblur_voxel = voxels_list[0][1:self.m, :, :]
+            right_deblur_voxel = voxels_list[0][self.m + 2 + self.n:, :, :]
+            left_lq = img_lqs[0, :, :, :]
+            right_lq = img_lqs[1, :, :, :]
+            img_lqs = torch.cat((left_lq, left_deblur_voxel, right_lq, right_deblur_voxel), dim=0)
 
         voxels = torch.stack(voxels_list, dim=0)
         if self.one_voxel_flg:

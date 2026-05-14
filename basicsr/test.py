@@ -1,6 +1,15 @@
 import logging
+import os
+import sys
 import torch
 from os import path as osp
+
+root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+script_path = os.path.dirname(os.path.abspath(__file__))
+if script_path in sys.path:
+    sys.path.remove(script_path)
+if root_path not in sys.path:
+    sys.path.insert(0, root_path)
 
 from basicsr.data import create_dataloader, create_dataset
 from basicsr.models import create_model

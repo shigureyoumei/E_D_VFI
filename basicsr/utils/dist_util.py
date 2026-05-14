@@ -21,13 +21,14 @@ def init_dist(launcher, backend='nccl', **kwargs):
 
 def _init_dist_pytorch(backend, **kwargs):
     rank = int(os.environ['RANK'])
-    # num_gpus = torch.cuda.device_count()
-    # ### To ignore the strange error of EULER
-    # if num_gpus == 0:
-    num_gpus = 4
-    # ###
-    torch.cuda.set_device(rank % num_gpus)
-    dist.init_process_group(backend=backend, **kwargs, timeout=datetime.timedelta(seconds=20000))
+    num_gpus = torch.cuda.device_count()
+    if num_gpus > 0:
+        local_rank = int(os.environ.get('LOCAL_RANK', rank % num_gpus))
+        torch.cuda.set_device(local_rank)
+    dist.init_process_group(
+        backend=backend,
+        **kwargs,
+        timeout=datetime.timedelta(seconds=20000))
 
 
 def _init_dist_slurm(backend, port=None):

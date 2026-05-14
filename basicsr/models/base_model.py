@@ -6,6 +6,7 @@ from copy import deepcopy
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 
 from basicsr.models import lr_scheduler as lr_scheduler
+from basicsr.utils.compat import torch_load_legacy_pickle
 from basicsr.utils.dist_util import master_only
 
 logger = logging.getLogger('basicsr')
@@ -267,7 +268,7 @@ class BaseModel():
         net = self.get_bare_model(net)
         logger.info(
             f'Loading {net.__class__.__name__} model from {load_path}.')
-        load_net = torch.load(
+        load_net = torch_load_legacy_pickle(
             load_path, map_location=lambda storage, loc: storage)
         if param_key is not None:
             load_net = load_net[param_key]

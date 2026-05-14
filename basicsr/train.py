@@ -25,6 +25,7 @@ from basicsr.utils import (MessageLogger, check_resume, get_env_info,
                            get_root_logger, get_time_str, init_tb_logger,
                            init_wandb_logger, make_exp_dirs, mkdir_and_rename,
                            set_random_seed)
+from basicsr.utils.compat import torch_load_legacy_pickle
 from basicsr.utils.dist_util import get_dist_info, init_dist
 from basicsr.utils.options import dict2str, parse
 
@@ -40,8 +41,9 @@ def parse_options(is_train=True):
         choices=['none', 'pytorch', 'slurm'],
         default='none',
         help='job launcher')
-    parser.add_argument('--local_rank', type=int, default=0)
+    parser.add_argument('--local_rank', '--local-rank', type=int, default=0)
     args = parser.parse_args()
+    os.environ.setdefault('LOCAL_RANK', str(args.local_rank))
     opt = parse(args.opt, is_train=is_train)
 
     # distributed settings
@@ -166,7 +168,7 @@ def main():
     # load resume states if necessary
     if opt['path'].get('resume_state'):
         device_id = torch.cuda.current_device()
-        resume_state = torch.load(
+        resume_state = torch_load_legacy_pickle(
             opt['path']['resume_state'],
             map_location=lambda storage, loc: storage.cuda(device_id))
     else:

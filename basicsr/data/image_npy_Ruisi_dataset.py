@@ -46,14 +46,19 @@ class RuisiEventRecurrentDataset(data.Dataset):
         self.num_input_blur = 2
         self.num_input_gt = 2*self.m + self.n
         self.num_bins = 2*self.m + self.n + 1
-        self.split = 'train' if opt['phase']=='train' else 'test' # train or test
+        if opt['phase'] == 'train':
+            self.split = 'train'
+        elif os.path.isdir(os.path.join(self.dataroot, 'val')):
+            self.split = 'val'
+        else:
+            self.split = 'test'
         self.norm_voxel = opt.get('norm_voxel', True)
         self.one_voxel_flg = opt.get('one_voxel_flag', True)
         self.return_deblur_voxel = opt.get('return_deblur_voxel', False)
         self.return_deblur_voxel = self.return_deblur_voxel and self.one_voxel_flg
 
         train_video_list = os.listdir(os.path.join(self.dataroot, 'train'))
-        test_video_list = os.listdir(os.path.join(self.dataroot, 'test'))
+        test_video_list = os.listdir(os.path.join(self.dataroot, self.split))
 
         ## the sequence names
         # train_video_list = [
@@ -269,4 +274,3 @@ class RuisiEventRecurrentDataset(data.Dataset):
 
     def __len__(self):
         return len(self.blurPairsPath)
-

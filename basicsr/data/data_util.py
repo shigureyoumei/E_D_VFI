@@ -292,12 +292,12 @@ def generate_gaussian_kernel(kernel_size=13, sigma=1.6):
     Returns:
         np.array: The Gaussian kernel.
     """
-    from scipy.ndimage import filters as filters
+    from scipy.ndimage import gaussian_filter
     kernel = np.zeros((kernel_size, kernel_size))
     # set element at the middle to one, a dirac delta
     kernel[kernel_size // 2, kernel_size // 2] = 1
     # gaussian-smooth the dirac, resulting in a gaussian filter
-    return filters.gaussian_filter(kernel, sigma)
+    return gaussian_filter(kernel, sigma)
 
 
 def duf_downsample(x, kernel_size=13, scale=4):
