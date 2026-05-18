@@ -2,14 +2,18 @@
 name: my_train_option_26ch
 model_type: TwoImageEventRecurrentRestorationModel
 scale: 1
-num_gpu: 1
+num_gpu: 4
 manual_seed: 10
 
 datasets:
   train:
     name: gopro-large-train
     type: GoProRawEventRecurrentDataset
+<<<<<<< HEAD
     dataroot: ./datasets/GOPRO_Large
+=======
+    dataroot: /work/HAIRDESC/naran/E_D_VFI/datasets/datasets/GOPRO_Large
+>>>>>>> 898f17b (update option pegasus)
 
     # interpolation settings
     num_end_interpolation: 11
@@ -32,15 +36,24 @@ datasets:
 
     # data loader settings
     use_shuffle: true
+<<<<<<< HEAD
     num_worker_per_gpu: 4
     batch_size_per_gpu: 1
+=======
+    num_worker_per_gpu: 0
+    batch_size_per_gpu: 4
+>>>>>>> 898f17b (update option pegasus)
     dataset_enlarge_ratio: 8
     prefetch_mode: ~
 
   val:
     name: gopro-large-test
     type: GoProRawEventRecurrentDataset
+<<<<<<< HEAD
     dataroot: ./datasets/GOPRO_Large
+=======
+    dataroot: /work/HAIRDESC/naran/E_D_VFI/datasets/datasets/GOPRO_Large
+>>>>>>> 898f17b (update option pegasus)
 
     # interpolation settings
     num_end_interpolation: 11
@@ -90,7 +103,7 @@ train:
     T_max: 200000
     eta_min: !!float 1e-7
 
-  total_iter: 200000
+  total_iter: 2
   warmup_iter: -1
 
   pixel_opt:
@@ -100,7 +113,8 @@ train:
 
 # validation settings
 val:
-  val_freq: !!float 5e4
+  #val_freq: !!float 5e4
+  val_freq: 1
   save_img: false
   grids: ~  
   crop_size: ~
@@ -128,7 +142,7 @@ val:
 
 # logging settings
 logger:
-  print_freq: 200
+  print_freq: 100
   save_checkpoint_freq: !!float 25000
   use_tb_logger: true
 

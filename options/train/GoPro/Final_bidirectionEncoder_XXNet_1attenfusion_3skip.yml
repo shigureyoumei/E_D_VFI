@@ -17,7 +17,9 @@ datasets:
     # dataroot: ./datasets/GoPro_scer/train
     # dataroot: /cluster/work/cvl/leisun/Datasets/GOPRO_11_video_1skip_blur_multigt_mini/ # debug
     # dataroot: ./datasets/GOPRO_11_video_1skip_blur_multigt/ 
-    dataroot: ./datasets/GOPRO_Large
+    dataroot: /work/HAIRDESC/naran/E_D_VFI/datasets/datasets/GOPRO_Large
+    # dataroot: ./datasets/GOPRO_Large
+    
     # dataroot: ./datasets/GOPRO_11_video_7skip_blur/ 
 
 
@@ -42,7 +44,7 @@ datasets:
     # data loader settings
     use_shuffle: true
     num_worker_per_gpu: 4
-    batch_size_per_gpu: 1
+    batch_size_per_gpu: 4
     dataset_enlarge_ratio: 8  # accelarate, equals to the num_gpu
     prefetch_mode: ~
 
@@ -53,7 +55,9 @@ datasets:
     # dataroot: ./datasets/test
     # dataroot: /cluster/work/cvl/leisun/Datasets/GOPRO_11_video_1skip_blur_multigt_mini/ # debug
     # dataroot: ./datasets/GOPRO_11_video_1skip_blur_multigt/ 
-    dataroot: ./datasets/GOPRO_Large
+    dataroot: /work/HAIRDESC/naran/E_D_VFI/datasets/datasets/GOPRO_Large
+    # dataroot: ./datasets/GOPRO_Large
+
     # dataroot: ./datasets/GOPRO_11_video_7skip_blur/ 
 
     # interpolation settings
