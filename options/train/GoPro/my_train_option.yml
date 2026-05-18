@@ -1,5 +1,5 @@
 # general settings
-name: my_train_option
+name: my_train_option_26ch
 model_type: TwoImageEventRecurrentRestorationModel
 scale: 1
 num_gpu: 1
@@ -9,16 +9,16 @@ datasets:
   train:
     name: gopro-large-train
     type: GoProRawEventRecurrentDataset
-    dataroot: /home/d203_3090/datasets/GOPRO_Large
+    dataroot: ./datasets/GOPRO_Large
 
     # interpolation settings
-    num_end_interpolation: 1
+    num_end_interpolation: 11
     num_inter_interpolation: 3
 
     # voxel settings
     norm_voxel: true
     one_voxel_flag: true
-    return_deblur_voxel: false
+    return_deblur_voxel: true
 
     filename_tmpl: '{}'
     io_backend:
@@ -32,7 +32,7 @@ datasets:
 
     # data loader settings
     use_shuffle: true
-    num_worker_per_gpu: 0
+    num_worker_per_gpu: 4
     batch_size_per_gpu: 1
     dataset_enlarge_ratio: 8
     prefetch_mode: ~
@@ -40,16 +40,16 @@ datasets:
   val:
     name: gopro-large-test
     type: GoProRawEventRecurrentDataset
-    dataroot: /home/d203_3090/datasets/GOPRO_Large
+    dataroot: ./datasets/GOPRO_Large
 
     # interpolation settings
-    num_end_interpolation: 1
+    num_end_interpolation: 11
     num_inter_interpolation: 3
 
     # voxel settings
     norm_voxel: true
     one_voxel_flag: true
-    return_deblur_voxel: false
+    return_deblur_voxel: true
 
     io_backend:
       type: disk
@@ -63,7 +63,7 @@ dataset_name: GoPro
 # network structures
 network_g:
   type: FinalBidirectionAttenfusion
-  img_chn: 6
+  img_chn: 26
   ev_chn: 2
   num_encoders: 3
   base_num_channels: 32
@@ -102,7 +102,7 @@ train:
 val:
   val_freq: !!float 5e4
   save_img: false
-  grids: ~
+  grids: ~  
   crop_size: ~
   max_minibatch: 8
 

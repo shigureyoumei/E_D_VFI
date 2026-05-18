@@ -2,16 +2,16 @@
 name: Finetune_1w_UND_Final_3skip # XXNet_convgru_deblurvoxel #XXNet 
 model_type: TwoImageEventRecurrentRestorationModel
 scale: 1
-num_gpu: 4 # 4
+num_gpu: 1 # 4
 manual_seed: 10
 
 datasets:
   train:
-    name: gopro-twoblur-train
+    name: highrev-full-train
     type: RuisiEventRecurrentDataset
 
     # dataroot: /cluster/work/cvl/leisun/RuisiDataset/UnnamedDataset_mini
-    dataroot: ./datasets/UND_11_3
+    dataroot: ./datasets/HighREV_11_3
     # dataroot: ./datasets/UND_11_1
 
 
@@ -42,11 +42,11 @@ datasets:
     num_prefetch_queue: 2
 
   val:
-    name: gopro-twoblur-test
+    name: highrev-full-val
     type: RuisiEventRecurrentDataset
 
     # dataroot: /cluster/work/cvl/leisun/RuisiDataset/UnnamedDataset_mini
-    dataroot: ./datasets/UND_11_3
+    dataroot: ./datasets/HighREV_11_3
     # dataroot: ./datasets/UND_11_1
 
     # interpolation settings
@@ -65,7 +65,7 @@ datasets:
     use_hflip: false
     use_rot: false
 
-dataset_name: UND
+dataset_name: HighREV
 
 # network structures
 network_g:
@@ -81,11 +81,10 @@ network_g:
 
 # path
 path:
-  pretrain_network_g: /cluster/work/cvl/leisun/log_EventInter_Recurrent/experiments/Final_3skip/models/net_g_latest.pth
+  pretrain_network_g: ./experiments/Final_3skip/models/net_g_latest.pth
   strict_load_g: true
   resume_state: ~ #/cluster/work/cvl/leisun/log_EventInter_Recurrent/experiments/XXNet_simpleconv_1_deblurvoxel_3skip/training_states/80000.state
   training_states: ~ # save current trainig model states, for resume
-  root: /cluster/work/cvl/leisun/XXNet_inference/  # set this option ONLY in TEST!!!
 
 # training settings
 train:

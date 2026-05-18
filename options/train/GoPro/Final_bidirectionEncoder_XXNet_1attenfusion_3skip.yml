@@ -4,20 +4,20 @@ name: Final_3skip # XXNet_convgru_deblurvoxel #XXNet
 
 model_type: TwoImageEventRecurrentRestorationModel
 scale: 1
-num_gpu: 4 # 4
+num_gpu: 1
 manual_seed: 10
 
 datasets:
 
   train:
     name: gopro-twoblur-train
-    type: GoProEventRecurrentDataset
+    type: GoProRawEventRecurrentDataset
     # type: GoProBidirEventRecurrentDataset
 
     # dataroot: ./datasets/GoPro_scer/train
     # dataroot: /cluster/work/cvl/leisun/Datasets/GOPRO_11_video_1skip_blur_multigt_mini/ # debug
     # dataroot: ./datasets/GOPRO_11_video_1skip_blur_multigt/ 
-    dataroot: ./datasets/GOPRO_11_video_3skip_blur_multigt/ 
+    dataroot: ./datasets/GOPRO_Large
     # dataroot: ./datasets/GOPRO_11_video_7skip_blur/ 
 
 
@@ -41,20 +41,19 @@ datasets:
     random_reverse: false
     # data loader settings
     use_shuffle: true
-    num_worker_per_gpu: 5
-    batch_size_per_gpu: 1 # 4 for 2080, 8 for titan
+    num_worker_per_gpu: 4
+    batch_size_per_gpu: 1
     dataset_enlarge_ratio: 8  # accelarate, equals to the num_gpu
-    prefetch_mode: cpu  # ?
-    num_prefetch_queue: 2
+    prefetch_mode: ~
 
   val:
     name: gopro-twoblur-test
-    type: GoProEventRecurrentDataset
+    type: GoProRawEventRecurrentDataset
 
     # dataroot: ./datasets/test
     # dataroot: /cluster/work/cvl/leisun/Datasets/GOPRO_11_video_1skip_blur_multigt_mini/ # debug
     # dataroot: ./datasets/GOPRO_11_video_1skip_blur_multigt/ 
-    dataroot: ./datasets/GOPRO_11_video_3skip_blur_multigt/ 
+    dataroot: ./datasets/GOPRO_Large
     # dataroot: ./datasets/GOPRO_11_video_7skip_blur/ 
 
     # interpolation settings
@@ -91,7 +90,7 @@ network_g:
 path:
   pretrain_network_g: ~
   strict_load_g: true
-  resume_state:  /cluster/work/cvl/leisun/log_EventInter_Recurrent/experiments/Final_3skip/training_states/150000.state
+  resume_state: ~
   training_states: ~ # save current trainig model states, for resume
 
 # training settings

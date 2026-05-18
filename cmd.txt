@@ -1,0 +1,8 @@
+普通训练
+python basicsr/train.py -opt options/train/GoPro/my_train_option.yml
+
+分布式启动
+python -m torch.distributed.launch --nproc_per_node=1 --master_port=4321 basicsr/train.py -opt options/train/GoPro/my_train_option.yml --launcher pytorch
+
+tensorboard
+tensorboard --logdir tb_logger --host 0.0.0.0 --port 6006
