@@ -2,7 +2,7 @@
 #------- qsub option -----------
 #PBS -A HAIRDESC
 #PBS -q gen_S
-#PBS -b 4
+#PBS -b 8
 #PBS -l elapstim_req=24:00:00
 #PBS -T openmpi
 #PBS -v NQSV_MPI_VER=4.1.6/gcc11.4.0-cuda11.8.0

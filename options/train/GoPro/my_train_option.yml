@@ -9,11 +9,7 @@ datasets:
   train:
     name: gopro-large-train
     type: GoProRawEventRecurrentDataset
-<<<<<<< HEAD
     dataroot: ./datasets/GOPRO_Large
-=======
-    dataroot: /work/HAIRDESC/naran/E_D_VFI/datasets/datasets/GOPRO_Large
->>>>>>> 898f17b (update option pegasus)
 
     # interpolation settings
     num_end_interpolation: 11
@@ -36,24 +32,15 @@ datasets:
 
     # data loader settings
     use_shuffle: true
-<<<<<<< HEAD
     num_worker_per_gpu: 4
     batch_size_per_gpu: 1
-=======
-    num_worker_per_gpu: 0
-    batch_size_per_gpu: 4
->>>>>>> 898f17b (update option pegasus)
     dataset_enlarge_ratio: 8
     prefetch_mode: ~
 
   val:
     name: gopro-large-test
     type: GoProRawEventRecurrentDataset
-<<<<<<< HEAD
     dataroot: ./datasets/GOPRO_Large
-=======
-    dataroot: /work/HAIRDESC/naran/E_D_VFI/datasets/datasets/GOPRO_Large
->>>>>>> 898f17b (update option pegasus)
 
     # interpolation settings
     num_end_interpolation: 11

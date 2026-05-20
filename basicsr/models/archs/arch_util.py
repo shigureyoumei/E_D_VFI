@@ -9,7 +9,7 @@ from basicsr.utils import get_root_logger
 
 from einops import rearrange
 import numbers
-from timm.models.layers import DropPath, trunc_normal_, to_2tuple
+from timm.layers import DropPath, trunc_normal_, to_2tuple
 
 @torch.no_grad()
 def default_init_weights(module_list, scale=1, bias_fill=0, **kwargs):

@@ -11,6 +11,7 @@ arch_filenames = [
     osp.splitext(osp.basename(v))[0] for v in scandir(arch_folder)
     if v.endswith('_arch.py')
 ]
+arch_filenames.append('MambaMotionBidirectionalNetwork')
 # import all the arch modules
 _arch_modules = [
     importlib.import_module(f'basicsr.models.archs.{file_name}')

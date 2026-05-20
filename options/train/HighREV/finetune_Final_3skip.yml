@@ -11,11 +11,7 @@ datasets:
     type: RuisiEventRecurrentDataset
 
     # dataroot: /cluster/work/cvl/leisun/RuisiDataset/UnnamedDataset_mini
-<<<<<<< HEAD
     dataroot: ./datasets/HighREV_11_3
-=======
-    dataroot: /work/HAIRDESC/naran/E_D_VFI/datasets/datasets/HighREV_full
->>>>>>> 898f17b (update option pegasus)
     # dataroot: ./datasets/UND_11_1
 
 
@@ -50,11 +46,7 @@ datasets:
     type: RuisiEventRecurrentDataset
 
     # dataroot: /cluster/work/cvl/leisun/RuisiDataset/UnnamedDataset_mini
-<<<<<<< HEAD
     dataroot: ./datasets/HighREV_11_3
-=======
-    dataroot: /work/HAIRDESC/naran/E_D_VFI/datasets/datasets/HighREV_full
->>>>>>> 898f17b (update option pegasus)
     # dataroot: ./datasets/UND_11_1
 
     # interpolation settings
