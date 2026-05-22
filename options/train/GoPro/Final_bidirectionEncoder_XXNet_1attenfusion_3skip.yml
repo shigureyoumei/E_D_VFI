@@ -17,7 +17,7 @@ datasets:
     # dataroot: ./datasets/GoPro_scer/train
     # dataroot: /cluster/work/cvl/leisun/Datasets/GOPRO_11_video_1skip_blur_multigt_mini/ # debug
     # dataroot: ./datasets/GOPRO_11_video_1skip_blur_multigt/ 
-    dataroot: /work/HAIRDESC/naran/E_D_VFI/datasets/datasets/GOPRO_Large
+    dataroot: /work/HAIRDESC/naran/datasets/EDVFI/GOPRO_Large
     # dataroot: ./datasets/GOPRO_Large
     
     # dataroot: ./datasets/GOPRO_11_video_7skip_blur/ 
@@ -55,7 +55,7 @@ datasets:
     # dataroot: ./datasets/test
     # dataroot: /cluster/work/cvl/leisun/Datasets/GOPRO_11_video_1skip_blur_multigt_mini/ # debug
     # dataroot: ./datasets/GOPRO_11_video_1skip_blur_multigt/ 
-    dataroot: /work/HAIRDESC/naran/E_D_VFI/datasets/datasets/GOPRO_Large
+    dataroot: /work/HAIRDESC/naran/datasets/EDVFI/GOPRO_Large
     # dataroot: ./datasets/GOPRO_Large
 
     # dataroot: ./datasets/GOPRO_11_video_7skip_blur/ 

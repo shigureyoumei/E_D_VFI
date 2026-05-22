@@ -20,7 +20,7 @@ import numpy as np
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--src", default="datasets/HighREV_full", help="Source HighREV_full root")
-    parser.add_argument("--dst", default="datasets/HighREV_11_3", help="Destination dataset root")
+    parser.add_argument("--dst", default="/work/HAIRDESC/naran/datasets/EDVFI/HighREV_11_3", help="Destination dataset root")
     parser.add_argument("--m", type=int, default=11, help="Number of GT frames per blur")
     parser.add_argument("--n", type=int, default=3, help="Skipped/interpolated frames between blur inputs")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing generated blur images")

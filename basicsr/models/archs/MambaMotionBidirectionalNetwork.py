@@ -6,6 +6,8 @@ from basicsr.models.archs.recurrent_sub_modules import ConvLayer, UpsampleConvLa
     RecurrentConvLayer, ResidualBlock, ConvLSTM, ConvGRU, ImageEncoderConvBlock, SimpleRecurrentConvLayer, SimpleRecurrentThenDownConvLayer, \
         TransposeRecurrentConvLayer, SimpleRecurrentThenDownAttenfusionConvLayer, SimpleRecurrentThenDownAttenfusionmodifiedConvLayer
 from basicsr.models.archs.dcn_util import ModulatedDeformConvPack
+from basicsr.models.archs.EAMamba.eamamba_block import EAMambaBlock
+from basicsr.models.archs.fusion_modules import CrossmodalAtten_imgeventalladd
 from einops import rearrange
 
 
@@ -15,6 +17,98 @@ def skip_concat(x1, x2):
 
 def skip_sum(x1, x2):
     return x1 + x2
+
+
+def sinusoidal_embedding(time_ids, dim):
+    half_dim = dim // 2
+    if half_dim == 0:
+        return time_ids[:, None]
+
+    frequencies = torch.exp(
+        torch.arange(half_dim, device=time_ids.device, dtype=time_ids.dtype)
+        * -(torch.log(torch.tensor(10000.0, device=time_ids.device, dtype=time_ids.dtype)) / max(half_dim - 1, 1))
+    )
+    angles = time_ids[:, None] * frequencies[None, :]
+    emb = torch.cat([torch.sin(angles), torch.cos(angles)], dim=-1)
+    if dim % 2 == 1:
+        emb = f.pad(emb, (0, 1))
+    return emb
+
+
+class TemporalEAMambaBlock(nn.Module):
+    """Bidirectional temporal EAMamba over per-pixel event feature sequences."""
+
+    def __init__(self, dim):
+        super(TemporalEAMambaBlock, self).__init__()
+        hidden_dim = dim * 4
+        self.time_mlp = nn.Sequential(
+            nn.Linear(dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, dim),
+        )
+        self.mamba_f = EAMambaBlock(dim=dim)
+        self.mamba_b = EAMambaBlock(dim=dim)
+        self.proj = nn.Linear(dim * 2, dim)
+
+    def forward(self, x):
+        b, t, c, h, w = x.shape
+
+        x_seq = x.permute(0, 3, 4, 1, 2).reshape(b * h * w, t, c)
+        time_ids = torch.linspace(0, 1, t, device=x.device, dtype=x.dtype)
+        time_emb = self.time_mlp(sinusoidal_embedding(time_ids, c))
+        x_seq = x_seq + time_emb[None, :, :]
+
+        x_ea = x_seq.transpose(1, 2).unsqueeze(-1)
+        y_f = self.mamba_f(x_ea).squeeze(-1).transpose(1, 2)
+        y_b = torch.flip(
+            self.mamba_b(torch.flip(x_ea, dims=[2])).squeeze(-1).transpose(1, 2),
+            dims=[1],
+        )
+
+        y = self.proj(torch.cat([y_f, y_b], dim=-1))
+        return y.reshape(b, h, w, t, c).permute(0, 3, 4, 1, 2)
+
+
+class EAMambaThenDownAttenfusionConvLayer(nn.Module):
+    """Event/image fusion, spatial downsample, then bidirectional temporal EAMamba."""
+
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1,
+                 relu_slope=0.2, norm=None, use_atten_fuse=False):
+        super(EAMambaThenDownAttenfusionConvLayer, self).__init__()
+        self.relu_slope = relu_slope
+        self.use_atten_fuse = use_atten_fuse
+
+        self.conv = ConvLayer(in_channels, out_channels, kernel_size, stride, padding, relu_slope, norm)
+        if relu_slope is not None:
+            self.relu = nn.LeakyReLU(relu_slope, inplace=False)
+
+        if self.use_atten_fuse:
+            self.atten_fuse = CrossmodalAtten_imgeventalladd(c=in_channels, c_out=out_channels, DW_Expand=1, FFN_Expand=2)
+
+        self.temporal_mamba = TemporalEAMambaBlock(out_channels)
+        self.down = nn.Conv2d(out_channels, out_channels, kernel_size=4, stride=2, padding=1, bias=False)
+
+    def forward(self, x, y=None):
+        b, t, c, h, w = x.shape
+        x = rearrange(x, 'b t c h w -> (b t) c h w')
+        if y is not None:
+            y = y[:, None, :, :, :].expand(-1, t, -1, -1, -1)
+            y = rearrange(y, 'b t c h w -> (b t) c h w')
+            if self.use_atten_fuse:
+                x = self.atten_fuse(x, y)
+            else:
+                x = x + y
+                x = self.conv(x)
+                if self.relu_slope is not None:
+                    x = self.relu(x)
+        else:
+            x = self.conv(x)
+            if self.relu_slope is not None:
+                x = self.relu(x)
+
+        x = self.down(x)
+        x = rearrange(x, '(b t) c h w -> b t c h w', b=b, t=t)
+        return self.temporal_mamba(x)
 
 
 class FinalDecoderRecurrentUNet(nn.Module):
@@ -98,23 +192,16 @@ class MambaMotionBidirectionalNetwork(FinalDecoderRecurrentUNet):
         ## event
         self.head = ConvLayer(self.ev_chn, self.base_num_channels,
                               kernel_size=5, stride=1, padding=2, relu_slope=0.2)  # N x C x H x W -> N x 32 x H x W
-        self.encoders_backward = nn.ModuleList()
-        self.encoders_forward = nn.ModuleList()
+        self.event_encoders = nn.ModuleList()
 
         for input_size, output_size, encoder_index in zip(self.encoder_input_sizes, self.encoder_output_sizes, self.encoder_indexs):
             # print('DEBUG: input size:{}'.format(input_size))
             # print('DEBUG: output size:{}'.format(output_size))
-            print('Using enhanced attention!')
+            print('Using temporal EAMamba event encoder!')
             use_atten_fuse = True if encoder_index == 1 else False
-            self.encoders_backward.append(SimpleRecurrentThenDownAttenfusionmodifiedConvLayer(input_size, output_size,
-                                                    kernel_size=3, stride=1, padding=1, fuse_two_direction=False,
-                                                    norm=self.norm, num_block=num_block, use_first_dcn=use_first_dcn,
-                                                    use_atten_fuse=use_atten_fuse))
-                                                    
-            self.encoders_forward.append(SimpleRecurrentThenDownAttenfusionmodifiedConvLayer(input_size, output_size,
-                                                    kernel_size=3, stride=1, padding=1, fuse_two_direction=True,
-                                                    norm=self.norm, num_block=num_block, use_first_dcn=use_first_dcn,
-                                                    use_atten_fuse=use_atten_fuse))
+            self.event_encoders.append(EAMambaThenDownAttenfusionConvLayer(input_size, output_size,
+                                                    kernel_size=3, stride=1, padding=1,
+                                                    norm=self.norm, use_atten_fuse=use_atten_fuse))
 
         ## img
         self.head_img = ConvLayer(self.img_chn, self.base_num_channels,
@@ -155,7 +242,7 @@ class MambaMotionBidirectionalNetwork(FinalDecoderRecurrentUNet):
             x_blocks.append(x)
 
 ########
-        ## prepare for propt 
+        ## temporal EAMamba event encoder
         e = rearrange(e, '(b t) c h w -> b t c h w', b=b, t=t)
         # if self.use_reversed_voxel:
         #     voxel, reversed_voxel = e.chunk(2,dim=1)
@@ -164,36 +251,20 @@ class MambaMotionBidirectionalNetwork(FinalDecoderRecurrentUNet):
         #     voxel, reversed_voxel = e
 
         out_l = []
-        backward_all_states = [] # list of list
-        backward_prev_states = [None] * self.num_encoders # prev states for each scale
-        forward_prev_states = [None] * self.num_encoders # prev states for each scale
         prev_states_decoder = [None] * self.num_encoders
-
-        ## backward propt
-        for frame_idx in range(t-1, -1, -1):
-        # for frame_idx in range(0,t): ## change to it if use reversed voxel
-            e_cur = e[:, frame_idx,:,:,:] # b,c,h,w
-            for i, back_encoder in enumerate(self.encoders_backward):
-                if i==0:
-                    e_cur, state = back_encoder(x=e_cur,y=None, prev_state=backward_prev_states[i])
-                else:
-                    e_cur, state = back_encoder(x=e_cur,y=x_blocks[i-1], prev_state=backward_prev_states[i])
-                backward_prev_states[i] = state
-            backward_all_states.insert(0, backward_prev_states) 
-            # [[0,1,2,3], [0,1,2,3], ... ,[0,1,2,3]] first frame -> last frame
+        e_blocks_all = []
+        e_cur_all = e
+        for i, event_encoder in enumerate(self.event_encoders):
+            if i == 0:
+                e_cur_all = event_encoder(e_cur_all, y=None)
+            else:
+                e_cur_all = event_encoder(e_cur_all, y=x_blocks[i - 1])
+            e_blocks_all.append(e_cur_all)
 
         ## forward propt 
         for frame_idx in range(0,t):
-            e_blocks = [] # skip feats for each frame
-            e_cur = e[:, frame_idx,:,:,:] # b,c,h,w
-            # event encoder
-            for i, encoder in enumerate(self.encoders_forward):
-                if i==0: # no img feat in first block
-                    e_cur, state = encoder(x=e_cur, y=None, prev_state=forward_prev_states[i], bi_direction_state=backward_all_states[frame_idx][i])
-                else:
-                    e_cur, state = encoder(x=e_cur, y=x_blocks[i-1], prev_state=forward_prev_states[i], bi_direction_state=backward_all_states[frame_idx][i])
-                e_blocks.append(e_cur)
-                forward_prev_states[i] = state # update state for next frame
+            e_blocks = [e_block[:, frame_idx, :, :, :] for e_block in e_blocks_all] # skip feats for each frame
+            e_cur = e_cur_all[:, frame_idx, :, :, :] # b,c,h,w
 
             ### add this!
             # residual blocks
