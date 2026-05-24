@@ -7,6 +7,8 @@ from basicsr.models.archs.recurrent_sub_modules import ConvLayer, UpsampleConvLa
         TransposeRecurrentConvLayer, SimpleRecurrentThenDownAttenfusionConvLayer, SimpleRecurrentThenDownAttenfusionmodifiedConvLayer
 from basicsr.models.archs.dcn_util import ModulatedDeformConvPack
 from basicsr.models.archs.EAMamba.eamamba_block import EAMambaBlock
+from basicsr.models.archs.event_guided_deblur_branch import SharedEventGuidedDeblurBranch
+from basicsr.models.archs.motion_basis_interpolation_branch import MotionBasisInterpolationBranch
 from basicsr.models.archs.fusion_modules import CrossmodalAtten_imgeventalladd
 from einops import rearrange
 
@@ -189,105 +191,196 @@ class MambaMotionBidirectionalNetwork(FinalDecoderRecurrentUNet):
                                                               num_residual_blocks, norm,
                                                               use_recurrent_upsample_conv)
         self.use_reversed_voxel = use_reversed_voxel
-        ## event
-        self.head = ConvLayer(self.ev_chn, self.base_num_channels,
-                              kernel_size=5, stride=1, padding=2, relu_slope=0.2)  # N x C x H x W -> N x 32 x H x W
-        self.event_encoders = nn.ModuleList()
 
-        for input_size, output_size, encoder_index in zip(self.encoder_input_sizes, self.encoder_output_sizes, self.encoder_indexs):
-            # print('DEBUG: input size:{}'.format(input_size))
-            # print('DEBUG: output size:{}'.format(output_size))
-            print('Using temporal EAMamba event encoder!')
-            use_atten_fuse = True if encoder_index == 1 else False
-            self.event_encoders.append(EAMambaThenDownAttenfusionConvLayer(input_size, output_size,
-                                                    kernel_size=3, stride=1, padding=1,
-                                                    norm=self.norm, use_atten_fuse=use_atten_fuse))
+        if self.num_encoders != 3:
+            raise ValueError('Branch-based MambaMotionBidirectionalNetwork currently expects num_encoders=3.')
 
-        ## img
-        self.head_img = ConvLayer(self.img_chn, self.base_num_channels,
-                              kernel_size=5, stride=1, padding=2, relu_slope=0.2)  # N x C x H x W -> N x 32 x H x W
-        self.img_encoders = nn.ModuleList()
-        for input_size, output_size in zip(self.encoder_input_sizes, self.encoder_output_sizes):
-            self.img_encoders.append(ImageEncoderConvBlock(in_size=input_size, out_size=output_size,
-                                                            downsample=True, relu_slope=0.2))
+        self.deblur_event_channels = max((self.img_chn - 6) // 2, 0)
+        self.num_deblur_candidates = max(self.deblur_event_channels + 1, 1)
+        deblur_branch_event_channels = max(self.deblur_event_channels, 1)
+        self.num_motion_basis = 3
+
+        self.deblur_branch = SharedEventGuidedDeblurBranch(
+            event_channels=deblur_branch_event_channels,
+            rgb_channels=3,
+            base_channels=self.base_num_channels,
+            num_rgb_blocks=2,
+            relu_slope=0.2,
+            num_candidates=self.num_deblur_candidates,
+        )
+        self.interpolation_branch = MotionBasisInterpolationBranch(
+            feature_channels=(
+                self.base_num_channels,
+                self.base_num_channels * 2,
+                self.base_num_channels * 4,
+            ),
+            event_channels=self.ev_chn,
+            base_event_channels=self.base_num_channels,
+            num_basis=self.num_motion_basis,
+            use_eamamba=True,
+        )
+        self.candidate_deep_down = nn.Sequential(
+            nn.Conv2d(self.base_num_channels * 4, self.max_num_channels,
+                      kernel_size=4, stride=2, padding=1, bias=False),
+            nn.LeakyReLU(0.2, inplace=False),
+        )
         
         self.build_resblocks()
         self.build_decoders()
         self.build_prediction_layer()
 
-    def forward(self, x, event):
-        """
-        :param x: b 2 c h w -> b, 2c, h, w
-        :param event: b, t, num_bins, h, w -> b*t num_bins(2) h w 
-        :return: b, t, out_chn, h, w
+    def _split_blur_inputs(self, x):
+        if x.dim() == 5:
+            b0 = x[:, 0, :, :, :]
+            b1 = x[:, -1, :, :, :]
+            e0 = x.new_zeros(b0.size(0), max(self.deblur_event_channels, 1), b0.size(2), b0.size(3))
+            e1 = x.new_zeros_like(e0)
+            return b0, b1, e0, e1
 
-        One direction propt version
-        TODO:  use_reversed_voxel!!!
-        """
-        # reshape
-        if x.dim()==5:
-            x = rearrange(x, 'b t c h w -> b (t c) h w') # sharp
-        b, t, num_bins, h, w = event.size()
-        event = rearrange(event, 'b t c h w -> (b t) c h w')
+        c_evt = self.deblur_event_channels
+        b0 = x[:, 0:3, :, :]
+        if c_evt > 0:
+            e0 = x[:, 3:3 + c_evt, :, :]
+            b1_start = 3 + c_evt
+            b1 = x[:, b1_start:b1_start + 3, :, :]
+            e1 = x[:, b1_start + 3:b1_start + 3 + c_evt, :, :]
+        else:
+            b1 = x[:, 3:6, :, :]
+            e0 = x.new_zeros(x.size(0), 1, x.size(2), x.size(3))
+            e1 = x.new_zeros_like(e0)
+        return b0, b1, e0, e1
 
-        
-        # head
-        x = self.head_img(x) # image feat
-        head = x
-        e = self.head(event)   # event feat
-        # image encoder
-        x_blocks = []
-        for i, img_encoder in enumerate(self.img_encoders):
-            x = img_encoder(x)
-            x_blocks.append(x)
+    def _select_between_events_and_tau(self, event):
+        total_t = event.size(1)
+        m = max(self.deblur_event_channels + 1, 1)
 
-########
-        ## temporal EAMamba event encoder
-        e = rearrange(e, '(b t) c h w -> b t c h w', b=b, t=t)
-        # if self.use_reversed_voxel:
-        #     voxel, reversed_voxel = e.chunk(2,dim=1)
-        #     t = t//2
-        # else:
-        #     voxel, reversed_voxel = e
+        event_forward = event
+        forward_t = total_t
+        if total_t % 2 == 0 and total_t // 2 > 2 * m:
+            event_forward = event[:, :total_t // 2, :, :, :]
+            forward_t = event_forward.size(1)
 
+        n = forward_t - 2 * m
+        if n > 0:
+            e_between = event_forward[:, m:m + n, :, :, :]
+            tau = torch.arange(1, n + 1, device=event.device, dtype=event.dtype) / (n + 1)
+            return e_between, tau, m, n
+
+        n = forward_t
+        e_between = event_forward
+        tau = torch.arange(1, n + 1, device=event.device, dtype=event.dtype) / (n + 1)
+        return e_between, tau, 1, n
+
+    def _endpoint_features_for_interpolation(self, f0_deblur, f1_deblur):
+        # Use the sharp candidates nearest the inter-frame interval as interpolation anchors.
+        return (
+            tuple(scale_feat[:, -1, :, :, :] for scale_feat in f0_deblur),
+            tuple(scale_feat[:, 0, :, :, :] for scale_feat in f1_deblur),
+        )
+
+    def _assemble_candidate_sequence(self, f0_deblur, f1_deblur, interp_features):
+        sequence_features = []
+        compact_features = []
+        for f0_s, f1_s, interp_s in zip(f0_deblur, f1_deblur, interp_features):
+            compact_features.append(torch.cat([
+                f0_s,
+                interp_s,
+                f1_s,
+            ], dim=1))
+            sequence_features.append(torch.cat([
+                f0_s,
+                interp_s,
+                f1_s,
+            ], dim=1))
+        return sequence_features, compact_features
+
+    def _apply_2d_to_sequence(self, module, x):
+        b, t, c, h, w = x.shape
+        y = module(rearrange(x, 'b t c h w -> (b t) c h w'))
+        _, c_out, h_out, w_out = y.shape
+        return rearrange(y, '(b t) c h w -> b t c h w', b=b, t=t)
+
+    def _decode_candidate_sequence(self, sequence_features):
+        head_seq = sequence_features[0]
+        block_0 = sequence_features[1]
+        block_1 = sequence_features[2]
+        block_2 = self._apply_2d_to_sequence(self.candidate_deep_down, block_1)
+        e_blocks_all = [block_0, block_1, block_2]
+
+        t = head_seq.size(1)
         out_l = []
         prev_states_decoder = [None] * self.num_encoders
-        e_blocks_all = []
-        e_cur_all = e
-        for i, event_encoder in enumerate(self.event_encoders):
-            if i == 0:
-                e_cur_all = event_encoder(e_cur_all, y=None)
-            else:
-                e_cur_all = event_encoder(e_cur_all, y=x_blocks[i - 1])
-            e_blocks_all.append(e_cur_all)
+        for frame_idx in range(t):
+            e_blocks = [e_block[:, frame_idx, :, :, :] for e_block in e_blocks_all]
+            e_cur = block_2[:, frame_idx, :, :, :]
 
-        ## forward propt 
-        for frame_idx in range(0,t):
-            e_blocks = [e_block[:, frame_idx, :, :, :] for e_block in e_blocks_all] # skip feats for each frame
-            e_cur = e_cur_all[:, frame_idx, :, :, :] # b,c,h,w
+            for resblock in self.resblocks:
+                e_cur = resblock(e_cur)
 
-            ### add this!
-            # residual blocks
-            for i in range(len(self.resblocks)):
-                if i == 0:
-                    e_cur = self.resblocks[i](e_cur+x_blocks[-1])
-                else:
-                    e_cur = self.resblocks[i](e_cur)
-
-            # for resblock in self.resblocks:
-                # e_cur = resblock(e_cur+x_blocks[-1])
-
-#########
-            ## Decoder
             for i, decoder in enumerate(self.decoders):
-                e_cur, state = decoder(self.apply_skip_connection(e_cur, e_blocks[self.num_encoders - i - 1]), prev_states_decoder[i])
+                e_cur, state = decoder(self.apply_skip_connection(e_cur, e_blocks[self.num_encoders - i - 1]),
+                                       prev_states_decoder[i])
                 prev_states_decoder[i] = state
 
-            # tail
-            out = self.pred(self.apply_skip_connection(e_cur, head))
+            out = self.pred(self.apply_skip_connection(e_cur, head_seq[:, frame_idx, :, :, :]))
             out_l.append(out)
-        
-        return torch.stack(out_l, dim=1) # b,t,c,h,w
+
+        return torch.stack(out_l, dim=1)
+
+    def forward(self, x, event):
+        """
+        x: [B, 6 + 2*(m-1), H, W], ordered as
+           left_rgb, left_exposure_event, right_rgb, right_exposure_event.
+        event: [B, 2*m+n, C_event, H, W] for Ruisi-style datasets.
+        return: [B, 2*m+n, out_chn, H, W], compatible with the existing GT layout.
+        """
+        b0, b1, e_exp0, e_exp1 = self._split_blur_inputs(x)
+        f0_deblur, f1_deblur = self.deblur_branch(b0, b1, e_exp0, e_exp1)
+        f0_interp_anchor, f1_interp_anchor = self._endpoint_features_for_interpolation(f0_deblur, f1_deblur)
+
+        e_between, tau, m, _ = self._select_between_events_and_tau(event)
+        if f0_deblur[0].size(1) != m or f1_deblur[0].size(1) != m:
+            raise RuntimeError(
+                f'Deblur candidate count mismatch: left={f0_deblur[0].size(1)}, '
+                f'right={f1_deblur[0].size(1)}, expected m={m}.'
+            )
+        interp_features, debug = self.interpolation_branch(f0_interp_anchor, f1_interp_anchor, e_between, tau)
+        self.latest_branch_debug = debug
+
+        sequence_features, compact_features = self._assemble_candidate_sequence(
+            f0_deblur, f1_deblur, interp_features,
+        )
+        expected_frames = 2 * m + tau.numel()
+        if sequence_features[0].size(1) != expected_frames:
+            raise RuntimeError(
+                f'Candidate sequence length mismatch: got {sequence_features[0].size(1)}, '
+                f'expected {expected_frames}.'
+            )
+        self.latest_compact_candidate_features = compact_features
+        return self._decode_candidate_sequence(sequence_features)
+
+
+class EventGuidedDeblurCandidateNetwork(nn.Module):
+    """Two-frame exposure-event-guided deblur feature candidate network.
+
+    This network intentionally returns multi-scale features instead of images.
+    It is separate from MambaMotionBidirectionalNetwork so existing REFID-style
+    training configs keep their original behavior.
+    """
+
+    def __init__(self, ev_chn, img_chn=3, base_num_channels=32, num_rgb_blocks=2,
+                 relu_slope=0.2, **kwargs):
+        super(EventGuidedDeblurCandidateNetwork, self).__init__()
+        self.deblur_branch = SharedEventGuidedDeblurBranch(
+            event_channels=ev_chn,
+            rgb_channels=img_chn,
+            base_channels=base_num_channels,
+            num_rgb_blocks=num_rgb_blocks,
+            relu_slope=relu_slope,
+        )
+
+    def forward(self, b0, b1, e_exp0, e_exp1):
+        return self.deblur_branch(b0, b1, e_exp0, e_exp1)
 
 
 if __name__ == '__main__':
@@ -296,7 +389,7 @@ if __name__ == '__main__':
     model = MambaMotionBidirectionalNetwork(img_chn=26, ev_chn=2, num_encoders=3)
     device = 'cuda'
     x = torch.rand(1, 26, 256, 256).to(device)
-    event = torch.rand(1, 24, 2, 256, 256).to(device)
+    event = torch.rand(1, 50, 2, 256, 256).to(device)
     model = model.to(device)
 
     start_time = time.time()

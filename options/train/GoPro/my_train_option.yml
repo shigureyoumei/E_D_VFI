@@ -44,7 +44,7 @@ datasets:
     # data loader settings
     use_shuffle: true
     num_worker_per_gpu: 4
-    batch_size_per_gpu: 4
+    batch_size_per_gpu: 2
     dataset_enlarge_ratio: 8  # accelarate, equals to the num_gpu
     prefetch_mode: ~
 
@@ -110,7 +110,7 @@ train:
     T_max: 200000 
     eta_min: !!float 1e-7
 
-  total_iter: 5000
+  total_iter: 100000
   warmup_iter: -1 # no warm up
 
   # losses

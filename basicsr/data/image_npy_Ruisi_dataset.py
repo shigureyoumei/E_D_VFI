@@ -56,9 +56,12 @@ class RuisiEventRecurrentDataset(data.Dataset):
         self.one_voxel_flg = opt.get('one_voxel_flag', True)
         self.return_deblur_voxel = opt.get('return_deblur_voxel', False)
         self.return_deblur_voxel = self.return_deblur_voxel and self.one_voxel_flg
+        self.filter_invalid_sequences = opt.get('filter_invalid_sequences', False)
 
         train_video_list = os.listdir(os.path.join(self.dataroot, 'train'))
         test_video_list = os.listdir(os.path.join(self.dataroot, self.split))
+
+        logger = get_root_logger()
 
         ## the sequence names
         # train_video_list = [
@@ -74,6 +77,7 @@ class RuisiEventRecurrentDataset(data.Dataset):
         self.blurPairsPath = [] 
         self.gtSeqsPath = [] # list of lists of sequences of gt sharp frames
         self.eventSeqsPath = [] # list of lists of event frames
+        skipped_invalid_sequences = 0
 
         ### Formate file lists
         for video in video_list:
@@ -94,6 +98,20 @@ class RuisiEventRecurrentDataset(data.Dataset):
             # print('DEBUG: eventInputs:{}'.format(eventInputs))
             eventInputs = [[os.path.join(self.dataroot, self.split, video, 'event', f) for f in group] for group in eventInputs] # GOPR0372_07_00/xxx.png ...
 
+            if self.filter_invalid_sequences:
+                expected_gt = 2*self.m + self.n
+                expected_event = 2*self.m + self.n + 1
+                valid_samples = []
+                for blur_pair, gt_seq, event_seq in zip(blurInputs, gtInputs, eventInputs):
+                    if len(gt_seq) == expected_gt and len(event_seq) == expected_event:
+                        valid_samples.append((blur_pair, gt_seq, event_seq))
+                    else:
+                        skipped_invalid_sequences += 1
+                if valid_samples:
+                    blurInputs, gtInputs, eventInputs = map(list, zip(*valid_samples))
+                else:
+                    blurInputs, gtInputs, eventInputs = [], [], []
+
             self.blurPairsPath.extend(blurInputs)# list of lists of paired blur input, e.g.:
             # [['GOPR0372_07_00/blur/000328.png', 'GOPR0372_07_00/blur/000342.png'],
             #  ['GOPR0372_07_00/blur/000342.png', 'GOPR0372_07_00/blur/000356.png']]
@@ -110,8 +128,9 @@ class RuisiEventRecurrentDataset(data.Dataset):
 
         # temporal augmentation configs
         self.random_reverse = opt.get('random_reverse', False)
-        logger = get_root_logger()
         logger.info(f'Temporal augmentation: random reverse is {self.random_reverse}.')
+        if self.filter_invalid_sequences:
+            logger.info(f'Filtered invalid recurrent samples: {skipped_invalid_sequences}.')
 
 
     def __getitem__(self, index):

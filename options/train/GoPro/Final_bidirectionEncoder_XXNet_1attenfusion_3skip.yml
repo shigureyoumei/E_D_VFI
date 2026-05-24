@@ -4,7 +4,7 @@ name: Final_3skip # XXNet_convgru_deblurvoxel #XXNet
 
 model_type: TwoImageEventRecurrentRestorationModel
 scale: 1
-num_gpu: 8
+num_gpu: 16
 manual_seed: 10
 
 datasets:

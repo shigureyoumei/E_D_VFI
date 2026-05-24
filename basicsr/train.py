@@ -6,6 +6,14 @@ import os
 import random
 import sys
 import time
+import warnings
+
+warnings.filterwarnings(
+    'ignore',
+    message=r'`torch\.cuda\.amp\.custom_(fwd|bwd)\(args\.\.\.\)` is deprecated.*',
+    category=FutureWarning)
+warnings.filterwarnings(
+    'ignore', category=FutureWarning, module=r'mamba_ssm(\.|$)')
 
 root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 script_path = os.path.dirname(os.path.abspath(__file__))

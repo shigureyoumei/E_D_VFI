@@ -2,12 +2,12 @@
 #------- qsub option -----------
 #PBS -A HAIRDESC
 #PBS -q gen_S
-#PBS -b 8
+#PBS -b 16
 #PBS -l elapstim_req=24:00:00
 #PBS -T openmpi
 #PBS -v NQSV_MPI_VER=4.1.6/gcc11.4.0-cuda11.8.0
 #PBS -v OMP_NUM_THREADS=8
-#PBS -N original_train_3skips
+#PBS -N 3skipsHighREV
 #PBS -j o
 
 #------- Program execution -----------
@@ -31,7 +31,7 @@ module load openmpi/${NQSV_MPI_VER}
 # 2. activate conda environment
 CONDA_BASE=/work/XRAYDIFF/naran/miniconda3
 source ${CONDA_BASE}/etc/profile.d/conda.sh
-conda activate EDVFI1
+conda activate REFID
 
 echo "========== Environment check =========="
 echo "CONDA_BASE   = ${CONDA_BASE}"
@@ -69,7 +69,8 @@ NPROC_PER_NODE=1
 WORLD_SIZE=$((NNODES * NPROC_PER_NODE))
 MASTER_ADDR=$(head -n 1 ${PBS_NODEFILE})
 MASTER_PORT=4321
-export MASTER_ADDR MASTER_PORT WORLD_SIZE OMP_NUM_THREADS
+PYTHONWARNINGS="ignore::FutureWarning:mamba_ssm.*"
+export MASTER_ADDR MASTER_PORT WORLD_SIZE OMP_NUM_THREADS PYTHONWARNINGS
 
 echo "========== Distributed config =========="
 echo "PBS_NP          = ${PBS_NP}"
@@ -79,6 +80,7 @@ echo "WORLD_SIZE      = ${WORLD_SIZE}"
 echo "MASTER_ADDR     = ${MASTER_ADDR}"
 echo "MASTER_PORT     = ${MASTER_PORT}"
 echo "OMP_NUM_THREADS = ${OMP_NUM_THREADS}"
+echo "PYTHONWARNINGS  = ${PYTHONWARNINGS}"
 echo ""
 echo "Allocated nodes:"
 cat ${PBS_NODEFILE}
@@ -94,7 +96,13 @@ else
 fi
 
 # 5. option file
-OPT=/work/HAIRDESC/naran/E_D_VFI/options/train/GoPro/Final_bidirectionEncoder_XXNet_1attenfusion_3skip.yml
+# OPT=/work/HAIRDESC/naran/E_D_VFI/options/train/GoPro/Final_bidirectionEncoder_XXNet_1attenfusion_3skip.yml
+# OPT=/work/HAIRDESC/naran/E_D_VFI/options/train/GoPro/my_train_option.yml
+# OPT=/work/HAIRDESC/naran/E_D_VFI/options/train/BSERGB/Final_bidirectionEncoder_XXNet_3_1.yml
+
+# finetune on HighREV
+OPT=/work/HAIRDESC/naran/E_D_VFI/options/train/HighREV/finetune_Final_3skip.yml
+
 
 echo "========== Training config =========="
 echo "OPT             = ${OPT}"
@@ -113,6 +121,7 @@ mpirun ${NQSV_MPIOPTS} -np ${NNODES} -npernode 1 \
   -x MASTER_PORT \
   -x WORLD_SIZE \
   -x OMP_NUM_THREADS \
+  -x PYTHONWARNINGS \
   bash -c '
     NODE_RANK=${OMPI_COMM_WORLD_RANK}
 
