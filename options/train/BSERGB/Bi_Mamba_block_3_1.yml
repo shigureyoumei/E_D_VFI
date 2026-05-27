@@ -1,5 +1,5 @@
 # general settings
-name: Bi_Mamba_block_BSERGB_2_1
+name: Bi_Mamba_block_BSERGB_3_1
 
 model_type: TwoImageEventRecurrentRestorationModel
 scale: 1
@@ -11,15 +11,16 @@ datasets:
   train:
     name: bsergb-train
     type: RuisiEventRecurrentDataset
-    dataroot: /work/HAIRDESC/naran/datasets/EDVFI/BSERGB_2_1
+    dataroot: /work/HAIRDESC/naran/datasets/EDVFI/BSERGB_3_1
 
     # interpolation settings
-    num_end_interpolation: 2 # m
+    num_end_interpolation: 3 # m
     num_inter_interpolation: 1 # n
     # voxel settings
     norm_voxel: true
     one_voxel_flag: true
     return_deblur_voxel: true
+    filter_invalid_sequences: true
 
     filename_tmpl: '{}'
     io_backend:
@@ -40,15 +41,16 @@ datasets:
   val:
     name: bsergb-test
     type: RuisiEventRecurrentDataset
-    dataroot: /work/HAIRDESC/naran/datasets/EDVFI/BSERGB_2_1
+    dataroot: /work/HAIRDESC/naran/datasets/EDVFI/BSERGB_3_1
 
     # interpolation settings
-    num_end_interpolation: 2 # m
+    num_end_interpolation: 3 # m
     num_inter_interpolation: 1 # n
     # voxel settings
     norm_voxel: true
     one_voxel_flag: true
     return_deblur_voxel: true
+    filter_invalid_sequences: true
 
     io_backend:
       type: disk
@@ -62,7 +64,7 @@ dataset_name: BSERGB
 # network structures
 network_g:
   type: MambaMotionBidirectionalNetwork
-  img_chn: 8 # 3 RGB + 1 left deblur voxel + 3 RGB + 1 right deblur voxel
+  img_chn: 10 # 3 RGB + 2 left deblur voxel + 3 RGB + 2 right deblur voxel
   ev_chn: 2
   num_encoders: 3
   base_num_channels: 32
@@ -89,7 +91,7 @@ train:
     T_max: 200000
     eta_min: !!float 1e-7
 
-  total_iter: 5000
+  total_iter: 100000
   warmup_iter: -1
 
   # losses
@@ -130,7 +132,8 @@ val:
 # logging settings
 logger:
   print_freq: 200
-  save_checkpoint_freq: !!float 5000
+  save_checkpoint_freq: !!float 2000
+  max_keep_checkpoints: 3
   use_tb_logger: true
 
 # dist training settings

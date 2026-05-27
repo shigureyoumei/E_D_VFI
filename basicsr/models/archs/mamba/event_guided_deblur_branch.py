@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from basicsr.models.archs.EAMamba.eamamba_block import EAMambaBlock
+from basicsr.models.archs.mamba.EAMamba.eamamba_block import EAMambaBlock
 
 
 def conv3x3(in_channels, out_channels, bias=True):

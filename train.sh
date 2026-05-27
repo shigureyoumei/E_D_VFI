@@ -7,7 +7,7 @@
 #PBS -T openmpi
 #PBS -v NQSV_MPI_VER=4.1.6/gcc11.4.0-cuda11.8.0
 #PBS -v OMP_NUM_THREADS=8
-#PBS -N 3skipsHighREV
+#PBS -N T_Bs_BiM_1skips
 #PBS -j o
 
 #------- Program execution -----------
@@ -98,10 +98,13 @@ fi
 # 5. option file
 # OPT=/work/HAIRDESC/naran/E_D_VFI/options/train/GoPro/Final_bidirectionEncoder_XXNet_1attenfusion_3skip.yml
 # OPT=/work/HAIRDESC/naran/E_D_VFI/options/train/GoPro/my_train_option.yml
-# OPT=/work/HAIRDESC/naran/E_D_VFI/options/train/BSERGB/Final_bidirectionEncoder_XXNet_3_1.yml
 
 # finetune on HighREV
-OPT=/work/HAIRDESC/naran/E_D_VFI/options/train/HighREV/finetune_Final_3skip.yml
+# OPT=/work/HAIRDESC/naran/E_D_VFI/options/train/HighREV/finetune_Final_3skip.yml
+
+#train on BSergb
+# OPT=/work/HAIRDESC/naran/E_D_VFI/options/train/BSERGB/Final_bidirectionEncoder_XXNet_3_1.yml
+OPT=/work/HAIRDESC/naran/E_D_VFI/options/train/BSERGB/Bi_Mamba_block_3_1.yml
 
 
 echo "========== Training config =========="

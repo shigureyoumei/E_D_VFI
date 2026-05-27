@@ -1,0 +1,81 @@
+# general settings
+name: Test_Final_BSERGB_3_1
+model_type: TestTwoImageEventRecurrentRestorationModel
+scale: 1
+num_gpu: 1
+manual_seed: 10
+
+# dataset and data loader settings
+datasets:
+  test:
+    name: bsergb-test
+    type: RuisiEventRecurrentDataset
+    dataroot: /work/HAIRDESC/naran/datasets/EDVFI/BSERGB_3_1
+
+    # interpolation settings
+    num_end_interpolation: 3 # m
+    num_inter_interpolation: 1 # n
+    # voxel settings
+    norm_voxel: true
+    one_voxel_flag: true
+    return_deblur_voxel: true
+    filter_invalid_sequences: true
+
+    io_backend:
+      type: disk
+
+    gt_size: ~ # whole image inference
+    use_hflip: false
+    use_rot: false
+
+dataset_name: BSERGB
+
+# network structures
+network_g:
+  type: FinalBidirectionAttenfusion
+  img_chn: 10 # 3 RGB + 2 left deblur voxel + 3 RGB + 2 right deblur voxel
+  ev_chn: 2
+  num_encoders: 3
+  base_num_channels: 32
+  num_block: 1
+  num_residual_blocks: 2
+
+# path
+path:
+  pretrain_network_g: /work/HAIRDESC/naran/E_D_VFI/experiments/Final_BSERGB_3_1/models/net_g_latest.pth
+  strict_load_g: true
+  resume_state: ~
+  root: /work/HAIRDESC/naran/E_D_VFI
+
+# validation settings
+val:
+  save_img: true
+  save_gt: true
+  grids: ~
+  crop_size: ~
+  rgb2bgr: false
+
+  metrics_deblur:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+
+  metrics_interpo:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+
+# distributed settings
+dist_params:
+  backend: nccl
+  port: 29500

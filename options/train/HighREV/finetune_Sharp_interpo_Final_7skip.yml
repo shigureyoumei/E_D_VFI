@@ -145,6 +145,7 @@ val:
 logger:
   print_freq: 200
   save_checkpoint_freq: !!float 25000
+  max_keep_checkpoints: 3
   use_tb_logger: true
   # wandb:
   #   project: your_project_name
@@ -154,4 +155,3 @@ logger:
 dist_params:
   backend: nccl
   port: 29500
-

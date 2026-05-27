@@ -1,4 +1,4 @@
-# basicsr/models/archs/EAMamba/eamamba_block.py
+# basicsr/models/archs/mamba/EAMamba/eamamba_block.py
 
 import torch
 import torch.nn as nn
@@ -10,7 +10,7 @@ from .module.scan import ScanTransform
 """
 用法示例
 
-from basicsr.models.archs.EAMamba.eamamba_block import EAMambaBlock
+from basicsr.models.archs.mamba.EAMamba.eamamba_block import EAMambaBlock
 
 self.event_mamba = EAMambaBlock(
     dim=64,

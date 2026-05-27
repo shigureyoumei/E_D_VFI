@@ -2,7 +2,7 @@
 name: InferenceResults_UND_Final_3skip
 model_type: TestTwoImageEventRecurrentRestorationModel
 scale: 1
-num_gpu: 4 # set num_gpu: 0 for cpu mode
+num_gpu: 1 # set num_gpu: 0 for cpu mode
 manual_seed: 10
 
 datasets:
@@ -10,9 +10,7 @@ datasets:
     name: UND-twoblur-test
     type: RuisiEventRecurrentDataset
 
-    # dataroot: /cluster/work/cvl/leisun/RuisiDataset/UnnamedDataset_mini
-    dataroot: ./datasets/UND_11_3
-    # dataroot: ./datasets/UND_11_1
+    dataroot: /work/HAIRDESC/naran/datasets/EDVFI/HighREV_11_3
 
     # interpolation settings
     num_end_interpolation: 11 # m
@@ -47,10 +45,11 @@ network_g:
 
 # path
 path:
-  pretrain_network_g: /cluster/work/cvl/leisun/XXNet_inference/experiments/Finetune_1w_UND_Final_3skip/models/net_g_10000.pth
+  # pretrain_network_g: /work/HAIRDESC/naran/E_D_VFI/experiments/Finetune_1w_UND_Final_3skip/models/net_g_10000.pth
+  pretrain_network_g: /work/HAIRDESC/naran/E_D_VFI/pretrained/REFID-HighREV-3skip.pth
   strict_load_g: true
   resume_state: ~ # /cluster/work/cvl/leisun/log_EventInter_Recurrent/experiments/Decoder_recurrent_XXNet_convthendown_simpleconv_1_deblurvoxel_3skip/training_states/175000.state # /cluster/work/cvl/leisun/log_EventInter_Recurrent/experiments/XXNet_first_try/training_states/120000.state
-  root: /cluster/work/cvl/leisun/XXNet_inference/  # set this option ONLY in TEST!!!
+  root: /work/HAIRDESC/naran/E_D_VFI  # set this option ONLY in TEST!!!
 
 # validation settings
 val:

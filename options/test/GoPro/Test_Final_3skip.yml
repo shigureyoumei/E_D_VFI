@@ -2,18 +2,16 @@
 name: Final_3skip_GoPro
 model_type: TestTwoImageEventRecurrentRestorationModel
 scale: 1
-num_gpu: 4 # set num_gpu: 0 for cpu mode
+num_gpu: 1 # set num_gpu: 0 for cpu mode
 manual_seed: 10
 
 # dataset and data loader settings
 datasets:
   test:
     name: gopro-bestmodel-test
-    type: GoProEventRecurrentDataset
+    type: GoProRawEventRecurrentDataset
 
-    # dataroot: /cluster/work/cvl/leisun/Datasets/GOPRO_11_video_1skip_blur_multigt_mini/ # debug
-    # dataroot: ./datasets/GOPRO_11_video_1skip_blur_multigt/ 
-    dataroot: ./datasets/GOPRO_11_video_3skip_blur_multigt/ 
+    dataroot: /work/HAIRDESC/naran/datasets/EDVFI/GOPRO_Large
 
     # interpolation settings
     num_end_interpolation: 11 # m
@@ -48,10 +46,13 @@ network_g:
 
 # path
 path:
-  pretrain_network_g: /cluster/work/cvl/leisun/log_EventInter_Recurrent/experiments/Final_3skip/models/net_g_latest.pth
+  # pretrain_network_g: /work/HAIRDESC/naran/E_D_VFI/experiments/Finetune_1w_UND_Final_3skip/models/net_g_latest.pth
+  pretrain_network_g: /work/HAIRDESC/naran/E_D_VFI/pretrained/REFID-GoPro-11-3.pth
+  # pretrain_network_g: /work/HAIRDESC/naran/E_D_VFI/pretrained/REFID-HighREV-3skip.pth
+  # pretrain_network_g: /work/HAIRDESC/naran/E_D_VFI/experiments/Final_3skip/models/net_g_100000.pth
   strict_load_g: true
   resume_state: ~
-  root: /cluster/work/cvl/leisun/XXNet_inference/  # set this option ONLY in TEST!!!
+  root: /work/HAIRDESC/naran/E_D_VFI  # set this option ONLY in TEST!!!
 
 # validation settings
 val:

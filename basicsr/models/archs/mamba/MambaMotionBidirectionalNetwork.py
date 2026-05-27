@@ -6,9 +6,9 @@ from basicsr.models.archs.recurrent_sub_modules import ConvLayer, UpsampleConvLa
     RecurrentConvLayer, ResidualBlock, ConvLSTM, ConvGRU, ImageEncoderConvBlock, SimpleRecurrentConvLayer, SimpleRecurrentThenDownConvLayer, \
         TransposeRecurrentConvLayer, SimpleRecurrentThenDownAttenfusionConvLayer, SimpleRecurrentThenDownAttenfusionmodifiedConvLayer
 from basicsr.models.archs.dcn_util import ModulatedDeformConvPack
-from basicsr.models.archs.EAMamba.eamamba_block import EAMambaBlock
-from basicsr.models.archs.event_guided_deblur_branch import SharedEventGuidedDeblurBranch
-from basicsr.models.archs.motion_basis_interpolation_branch import MotionBasisInterpolationBranch
+from basicsr.models.archs.mamba.EAMamba.eamamba_block import EAMambaBlock
+from basicsr.models.archs.mamba.event_guided_deblur_branch import SharedEventGuidedDeblurBranch
+from basicsr.models.archs.mamba.motion_basis_interpolation_branch import MotionBasisInterpolationBranch
 from basicsr.models.archs.fusion_modules import CrossmodalAtten_imgeventalladd
 from einops import rearrange
 
@@ -35,6 +35,18 @@ def sinusoidal_embedding(time_ids, dim):
     if dim % 2 == 1:
         emb = f.pad(emb, (0, 1))
     return emb
+
+
+def detach_debug(value):
+    """Detach nested debug tensors before retaining them on the network."""
+    if torch.is_tensor(value):
+        return value.detach()
+    if isinstance(value, dict):
+        return {key: detach_debug(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        detached = [detach_debug(item) for item in value]
+        return type(value)(detached)
+    return value
 
 
 class TemporalEAMambaBlock(nn.Module):
@@ -185,12 +197,16 @@ class MambaMotionBidirectionalNetwork(FinalDecoderRecurrentUNet):
 
     def __init__(self, img_chn, ev_chn, out_chn=3, skip_type='sum',
                  recurrent_block_type='convlstm', activation='sigmoid', num_encoders=4, base_num_channels=32,
-                 num_residual_blocks=2, norm=None, use_recurrent_upsample_conv=True, num_block=3, use_first_dcn=False, use_reversed_voxel=False):
+                 num_residual_blocks=2, norm=None, use_recurrent_upsample_conv=True, num_block=3, use_first_dcn=False,
+                 use_reversed_voxel=False, store_branch_debug=False, use_motion_basis=True,
+                 num_motion_basis=None, motion_basis_use_eamamba=False):
         super(MambaMotionBidirectionalNetwork, self).__init__(img_chn, ev_chn, out_chn, skip_type, activation,
                                                               num_encoders, base_num_channels,
                                                               num_residual_blocks, norm,
                                                               use_recurrent_upsample_conv)
         self.use_reversed_voxel = use_reversed_voxel
+        self.store_branch_debug = store_branch_debug
+        self.latest_branch_debug = None
 
         if self.num_encoders != 3:
             raise ValueError('Branch-based MambaMotionBidirectionalNetwork currently expects num_encoders=3.')
@@ -198,7 +214,7 @@ class MambaMotionBidirectionalNetwork(FinalDecoderRecurrentUNet):
         self.deblur_event_channels = max((self.img_chn - 6) // 2, 0)
         self.num_deblur_candidates = max(self.deblur_event_channels + 1, 1)
         deblur_branch_event_channels = max(self.deblur_event_channels, 1)
-        self.num_motion_basis = 3
+        self.num_motion_basis = num_motion_basis if num_motion_basis is not None else (4 if use_motion_basis else 3)
 
         self.deblur_branch = SharedEventGuidedDeblurBranch(
             event_channels=deblur_branch_event_channels,
@@ -218,6 +234,8 @@ class MambaMotionBidirectionalNetwork(FinalDecoderRecurrentUNet):
             base_event_channels=self.base_num_channels,
             num_basis=self.num_motion_basis,
             use_eamamba=True,
+            use_motion_basis=use_motion_basis,
+            motion_basis_use_eamamba=motion_basis_use_eamamba,
         )
         self.candidate_deep_down = nn.Sequential(
             nn.Conv2d(self.base_num_channels * 4, self.max_num_channels,
@@ -280,19 +298,13 @@ class MambaMotionBidirectionalNetwork(FinalDecoderRecurrentUNet):
 
     def _assemble_candidate_sequence(self, f0_deblur, f1_deblur, interp_features):
         sequence_features = []
-        compact_features = []
         for f0_s, f1_s, interp_s in zip(f0_deblur, f1_deblur, interp_features):
-            compact_features.append(torch.cat([
-                f0_s,
-                interp_s,
-                f1_s,
-            ], dim=1))
             sequence_features.append(torch.cat([
                 f0_s,
                 interp_s,
                 f1_s,
             ], dim=1))
-        return sequence_features, compact_features
+        return sequence_features
 
     def _apply_2d_to_sequence(self, module, x):
         b, t, c, h, w = x.shape
@@ -344,10 +356,14 @@ class MambaMotionBidirectionalNetwork(FinalDecoderRecurrentUNet):
                 f'Deblur candidate count mismatch: left={f0_deblur[0].size(1)}, '
                 f'right={f1_deblur[0].size(1)}, expected m={m}.'
             )
-        interp_features, debug = self.interpolation_branch(f0_interp_anchor, f1_interp_anchor, e_between, tau)
-        self.latest_branch_debug = debug
+        save_debug = self.store_branch_debug and not self.training
+        interp_features, debug = self.interpolation_branch(
+            f0_interp_anchor, f1_interp_anchor, e_between, tau,
+            return_debug=save_debug,
+        )
+        self.latest_branch_debug = detach_debug(debug) if save_debug else None
 
-        sequence_features, compact_features = self._assemble_candidate_sequence(
+        sequence_features = self._assemble_candidate_sequence(
             f0_deblur, f1_deblur, interp_features,
         )
         expected_frames = 2 * m + tau.numel()
@@ -356,7 +372,6 @@ class MambaMotionBidirectionalNetwork(FinalDecoderRecurrentUNet):
                 f'Candidate sequence length mismatch: got {sequence_features[0].size(1)}, '
                 f'expected {expected_frames}.'
             )
-        self.latest_compact_candidate_features = compact_features
         return self._decode_candidate_sequence(sequence_features)
 
 

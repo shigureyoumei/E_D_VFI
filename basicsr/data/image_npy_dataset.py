@@ -268,7 +268,8 @@ class GoProRawEventRecurrentDataset(GoProEventRecurrentDataset):
     """GoPro raw blur/sharp/event dataset for joint deblur and interpolation.
 
     This variant expects each sequence to contain equal-rate blur and sharp
-    frames, with event files stored in train_event/test_event.
+    frames, with event files stored in train_event/test_event. Each event file
+    represents events simulated between two adjacent sharp frames.
     """
 
     def __init__(self, opt):
@@ -294,25 +295,40 @@ class GoProRawEventRecurrentDataset(GoProEventRecurrentDataset):
             'GOPR0384_11_00', 'GOPR0385_11_01', 'GOPR0410_11_00', 'GOPR0862_11_00', 'GOPR0869_11_00', 'GOPR0881_11_01', 'GOPR0384_11_05', 'GOPR0396_11_00',
             'GOPR0854_11_00', 'GOPR0868_11_00', 'GOPR0871_11_00']
         video_list = train_video_list if self.split == 'train' else test_video_list
+        logger = get_root_logger()
+        exposure_tag = f'_{self.m:02d}_'
+        excluded_videos = [video for video in video_list if exposure_tag not in video]
+        video_list = [video for video in video_list if exposure_tag in video]
+        if excluded_videos:
+            logger.info(
+                f'Ignore sequences with blur exposure different from m={self.m}: '
+                f'{", ".join(excluded_videos)}')
 
         self.blurPairsPath = []
         self.gtSeqsPath = []
         self.eventSeqsPath = []
         step = self.m + self.n
+        blur_center_offset = self.m // 2
 
         for video in video_list:
             blur_frames = sorted(recursive_glob(rootdir=os.path.join(self.dataroot, self.split, video, 'blur'), suffix='.png'))
             sharp_dir, sharp_folder = _sharp_dir(self.dataroot, self.split, video)
             gt_frames = sorted(recursive_glob(rootdir=sharp_dir, suffix='.png'))
             event_frames = sorted(recursive_glob(rootdir=os.path.join(self.dataroot, self.split + '_event', video), suffix='.npz'))
-            n_sets = (min(len(blur_frames), len(gt_frames)) - self.num_input_gt) // step + 1
 
-            for i in range(max(n_sets, 0)):
-                start = i * step
-                end = start + self.num_input_gt - 1
+            # Retain an event interval on both sides of each GT window, as in
+            # GoProEventRecurrentDataset. The leading boundary makes the first
+            # stride-aligned GT window unusable.
+            for start in range(step, len(gt_frames) - self.num_input_gt + 1, step):
+                left_blur = start + blur_center_offset
+                right_blur = start + step + blur_center_offset
+                event_start = start - 1
+                event_end = event_start + self.num_bins
+                if right_blur >= len(blur_frames) or event_end > len(event_frames):
+                    continue
                 self.blurPairsPath.append([
-                    os.path.join(self.dataroot, self.split, video, 'blur', blur_frames[start]),
-                    os.path.join(self.dataroot, self.split, video, 'blur', blur_frames[end])
+                    os.path.join(self.dataroot, self.split, video, 'blur', blur_frames[left_blur]),
+                    os.path.join(self.dataroot, self.split, video, 'blur', blur_frames[right_blur])
                 ])
                 self.gtSeqsPath.append([
                     os.path.join(self.dataroot, self.split, video, sharp_folder, f)
@@ -320,13 +336,12 @@ class GoProRawEventRecurrentDataset(GoProEventRecurrentDataset):
                 ])
                 self.eventSeqsPath.append([
                     os.path.join(self.dataroot, self.split + '_event', video, f)
-                    for f in event_frames[start:start + self.num_input_gt - 1]
+                    for f in event_frames[event_start:event_end]
                 ])
 
         self.file_client = None
         self.io_backend_opt = opt['io_backend']
         self.random_reverse = opt.get('random_reverse', False)
-        logger = get_root_logger()
         logger.info(f'Temporal augmentation: random reverse is {self.random_reverse}.')
 
     def __getitem__(self, index):
@@ -341,8 +356,8 @@ class GoProRawEventRecurrentDataset(GoProEventRecurrentDataset):
 
         assert len(gt_paths) == self.num_input_gt, (
             f'The number of gt file:{len(gt_paths)} is not equal to {self.num_input_gt}')
-        assert len(event_paths) == self.num_input_gt - 1, (
-            f'The number of event file:{len(event_paths)} is not equal to {self.num_input_gt - 1}')
+        assert len(event_paths) == self.num_bins, (
+            f'The number of event file:{len(event_paths)} is not equal to {self.num_bins}')
 
         if self.random_reverse and random.random() < 0.5:
             image_paths.reverse()

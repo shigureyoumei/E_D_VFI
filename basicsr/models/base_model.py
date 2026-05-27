@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import torch
 from collections import OrderedDict
 from copy import deepcopy
@@ -305,6 +306,38 @@ class BaseModel():
             save_path = os.path.join(self.opt['path']['training_states'],
                                      save_filename)
             torch.save(state, save_path)
+            self._prune_old_checkpoints()
+
+    def _prune_old_checkpoints(self):
+        """Keep only the newest resumable checkpoint iterations."""
+        max_keep = self.opt.get('logger', {}).get('max_keep_checkpoints', 3)
+        if max_keep is None:
+            return
+        max_keep = int(max_keep)
+        if max_keep < 1:
+            raise ValueError('logger.max_keep_checkpoints must be at least 1.')
+
+        state_dir = self.opt['path']['training_states']
+        state_pattern = re.compile(r'^(\d+)\.state$')
+        state_iters = []
+        for filename in os.listdir(state_dir):
+            match = state_pattern.match(filename)
+            if match:
+                state_iters.append(int(match.group(1)))
+        stale_iters = sorted(state_iters, reverse=True)[max_keep:]
+        if not stale_iters:
+            return
+
+        models_dir = self.opt['path']['models']
+        for stale_iter in stale_iters:
+            state_path = os.path.join(state_dir, f'{stale_iter}.state')
+            if os.path.isfile(state_path):
+                os.remove(state_path)
+            model_suffix = f'_{stale_iter}.pth'
+            for filename in os.listdir(models_dir):
+                if filename.endswith(model_suffix):
+                    os.remove(os.path.join(models_dir, filename))
+            logger.info(f'Removed old checkpoint at iter {stale_iter}.')
 
     def resume_training(self, resume_state):
         """Reload the optimizers and schedulers for resumed training.

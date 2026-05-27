@@ -75,7 +75,7 @@ network_g:
 path:
   pretrain_network_g: ~
   strict_load_g: true
-  resume_state: ~
+  resume_state: /work/HAIRDESC/naran/E_D_VFI/experiments/Final_BSERGB_3_1/training_states/50000.state
   training_states: ~
 
 # training settings
@@ -132,7 +132,8 @@ val:
 # logging settings
 logger:
   print_freq: 200
-  save_checkpoint_freq: !!float 5000
+  save_checkpoint_freq: !!float 2000
+  max_keep_checkpoints: 3
   use_tb_logger: true
 
 # dist training settings

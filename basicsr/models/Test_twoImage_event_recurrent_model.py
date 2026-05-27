@@ -1,5 +1,6 @@
 import importlib
 import torch
+import torch.nn.functional as F
 from collections import OrderedDict
 from copy import deepcopy
 from os import path as osp
@@ -211,6 +212,10 @@ class TestTwoImageEventRecurrentRestorationModel(BaseModel):
         self.net_g.eval()
         with torch.no_grad():
             n = self.lq.size(0)  # n: batch size
+            _, _, h, w = self.lq.size()
+            downsample_factor = 2 ** self.opt['network_g'].get('num_encoders', 3)
+            pad_h = (-h) % downsample_factor
+            pad_w = (-w) % downsample_factor
             outs = []
             m = self.opt['val'].get('max_minibatch', n)  # m is the minibatch, equals to batch size or mini batch size
             i = 0
@@ -219,7 +224,18 @@ class TestTwoImageEventRecurrentRestorationModel(BaseModel):
                 if j >= n:
                     j = n
 
-                pred = self.net_g(x = self.lq[i:j, :, :, :], event = self.voxel[i:j, :, :, :])  # mini batch all in 
+                x = self.lq[i:j, :, :, :]
+                event = self.voxel[i:j, :, :, :]
+                if pad_h or pad_w:
+                    pad = (0, pad_w, 0, pad_h)
+                    x = F.pad(x, pad, mode='reflect')
+                    b, t, c, _, _ = event.size()
+                    event = F.pad(event.reshape(b * t, c, h, w), pad, mode='reflect')
+                    event = event.reshape(b, t, c, h + pad_h, w + pad_w)
+
+                pred = self.net_g(x=x, event=event)
+                if pad_h or pad_w:
+                    pred = pred[:, :, :, :h, :w]
             
                 outs.append(pred)
                 i = j
