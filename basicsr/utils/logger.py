@@ -1,5 +1,6 @@
 import datetime
 import logging
+import os
 import time
 
 from .dist_util import get_dist_info, master_only
@@ -64,6 +65,14 @@ class MessageLogger():
             message += f'[eta: {eta_str}, '
             message += f'time (data): {iter_time:.3f} ({data_time:.3f})] '
 
+        if 'gpu_mem_alloc' in log_vars:
+            gpu_mem_alloc = log_vars.pop('gpu_mem_alloc')
+            gpu_mem_peak = log_vars.pop('gpu_mem_peak')
+            gpu_mem_reserved_peak = log_vars.pop('gpu_mem_reserved_peak')
+            message += (f'[gpu_mem: {gpu_mem_alloc:.2f} GiB, '
+                        f'peak: {gpu_mem_peak:.2f} GiB, '
+                        f'reserved_peak: {gpu_mem_reserved_peak:.2f} GiB] ')
+
         # other items, especially losses
         for k, v in log_vars.items():
             message += f'{k}: {v:.4e} '
@@ -76,11 +85,66 @@ class MessageLogger():
         self.logger.info(message)
 
 
+class ResilientSummaryWriter:
+    """SummaryWriter wrapper that recovers if the event file disappears."""
+
+    def __init__(self, log_dir):
+        from torch.utils.tensorboard import SummaryWriter
+
+        self.log_dir = os.path.abspath(log_dir)
+        self.writer_cls = SummaryWriter
+        self.logger = get_root_logger()
+        self.tb_logger = self._create_writer()
+
+    def _create_writer(self):
+        os.makedirs(self.log_dir, exist_ok=True)
+        return self.writer_cls(log_dir=self.log_dir)
+
+    def _reopen(self, err):
+        self.logger.warning(
+            f'TensorBoard writer lost its event file: {err}. Reopening writer '
+            f'under {self.log_dir}.')
+        try:
+            self.tb_logger.close()
+        except Exception:
+            pass
+        self.tb_logger = self._create_writer()
+
+    def add_scalar(self, *args, **kwargs):
+        if self.tb_logger is None:
+            raise RuntimeError(
+                f'TensorBoard writer is not available for {self.log_dir}.')
+        try:
+            self.tb_logger.add_scalar(*args, **kwargs)
+            self.tb_logger.flush()
+        except OSError as err:
+            self._reopen(err)
+            try:
+                self.tb_logger.add_scalar(*args, **kwargs)
+                self.tb_logger.flush()
+            except OSError as retry_err:
+                raise RuntimeError(
+                    f'TensorBoard writer failed after reopening '
+                    f'{self.log_dir}. Check filesystem and permissions.'
+                ) from retry_err
+
+    def close(self):
+        if self.tb_logger is not None:
+            try:
+                self.tb_logger.close()
+            except FileNotFoundError as err:
+                self.logger.warning(
+                    f'Ignore TensorBoard close failure after event file was '
+                    f'lost: {err}')
+            except Exception as err:
+                self.logger.warning(
+                    f'Ignore TensorBoard close failure: {err}')
+
+
 @master_only
 def init_tb_logger(log_dir):
-    from torch.utils.tensorboard import SummaryWriter
-    tb_logger = SummaryWriter(log_dir=log_dir)
-    return tb_logger
+    return ResilientSummaryWriter(log_dir=log_dir)
+
 
 
 @master_only

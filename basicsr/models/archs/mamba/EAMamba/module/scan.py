@@ -119,7 +119,7 @@ class ScanTransform():
                 concate mode  : B, count, C/count, L    -> split at channel, reorder and stack at batch dim
         '''
         if self.scan_count == 1:
-            return x
+            return x.unsqueeze(1)
 
         # copy the tensor in the channel dim for self.scan_count times
         # and stack them together in batch dim later
@@ -157,7 +157,7 @@ class ScanTransform():
                 B, C, L 
         '''
         if self.scan_count == 1:
-            return x
+            return x[:, 0]
 
         H, W = size
         B, _, C, L = x.shape

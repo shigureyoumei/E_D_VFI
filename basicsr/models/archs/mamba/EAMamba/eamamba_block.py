@@ -14,8 +14,8 @@ from basicsr.models.archs.mamba.EAMamba.eamamba_block import EAMambaBlock
 
 self.event_mamba = EAMambaBlock(
     dim=64,
-    scan_type="zigzag",
-    scan_count=4,
+    scan_type=None,
+    scan_count=1,
     scan_merge_method="add",
     channel_mixer_type="Simple",
 )
@@ -39,8 +39,8 @@ class EAMambaBlock(nn.Module):
     def __init__(
         self,
         dim,
-        scan_type="zigzag",
-        scan_count=4,
+        scan_type=None,
+        scan_count=1,
         scan_merge_method="add",
         d_state=16,
         d_conv=4,

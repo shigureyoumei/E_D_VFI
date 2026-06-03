@@ -22,6 +22,7 @@ if script_path in sys.path:
 if root_path not in sys.path:
     sys.path.insert(0, root_path)
 
+import numpy as np
 import torch
 from os import path as osp
 
@@ -213,6 +214,27 @@ def main():
     # create message logger (formatted outputs)
     msg_logger = MessageLogger(opt, current_iter, tb_logger)
 
+    def run_validation():
+        val_seed = opt.get('val', {}).get('manual_seed', opt['manual_seed'])
+        python_rng_state = random.getstate()
+        numpy_rng_state = np.random.get_state()
+        torch_rng_state = torch.get_rng_state()
+        cuda_rng_state = (torch.cuda.get_rng_state_all()
+                          if torch.cuda.is_available() else None)
+
+        set_random_seed(val_seed + opt['rank'])
+        rgb2bgr = opt['val'].get('rgb2bgr', True)
+        use_image = opt['val'].get('use_image', True)
+        try:
+            model.validation(val_loader, current_iter, tb_logger,
+                             opt['val']['save_img'], rgb2bgr, use_image)
+        finally:
+            random.setstate(python_rng_state)
+            np.random.set_state(numpy_rng_state)
+            torch.set_rng_state(torch_rng_state)
+            if cuda_rng_state is not None:
+                torch.cuda.set_rng_state_all(cuda_rng_state)
+
     # dataloader prefetcher
     prefetch_mode = opt['datasets']['train'].get('prefetch_mode')
     if prefetch_mode is None or prefetch_mode == 'cpu':
@@ -257,6 +279,14 @@ def main():
                 log_vars = {'epoch': epoch, 'iter': current_iter}
                 log_vars.update({'lrs': model.get_current_learning_rate()})
                 log_vars.update({'time': iter_time, 'data_time': data_time})
+                if torch.cuda.is_available():
+                    bytes_per_gib = 1024 ** 3
+                    log_vars.update({
+                        'gpu_mem_alloc': torch.cuda.memory_allocated() / bytes_per_gib,
+                        'gpu_mem_peak': torch.cuda.max_memory_allocated() / bytes_per_gib,
+                        'gpu_mem_reserved_peak':
+                            torch.cuda.max_memory_reserved() / bytes_per_gib
+                    })
                 log_vars.update(model.get_current_log())
                 msg_logger(log_vars)
 
@@ -268,11 +298,7 @@ def main():
             # validation
             if opt.get('val') is not None and (current_iter %
                                                opt['val']['val_freq'] == 0):
-                rgb2bgr = opt['val'].get('rgb2bgr', True)
-                # wheather use uint8 image to compute metrics
-                use_image = opt['val'].get('use_image', True)
-                model.validation(val_loader, current_iter, tb_logger,
-                                 opt['val']['save_img'], rgb2bgr, use_image )
+                run_validation()
 
             data_time = time.time()
             iter_time = time.time()
@@ -288,10 +314,7 @@ def main():
     logger.info('Save the latest model.')
     model.save(epoch=-1, current_iter=-1)  # -1 stands for the latest
     if opt.get('val') is not None:
-        rgb2bgr = opt['val'].get('rgb2bgr', True)
-        use_image = opt['val'].get('use_image', True)
-        model.validation(val_loader, current_iter, tb_logger,
-                         opt['val']['save_img'], rgb2bgr, use_image)
+        run_validation()
     if tb_logger:
         tb_logger.close()
 

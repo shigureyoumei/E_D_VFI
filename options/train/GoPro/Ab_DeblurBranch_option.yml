@@ -1,114 +1,94 @@
-# general settings
-name: Final_BSERGB_3_1
-
+# REFID ablation: event-aware two-encoder DeblurBranch on GoPro-small.
+name: Ab_DeblurBranch_GoPro_3skip_full
 model_type: TwoImageEventRecurrentRestorationModel
 scale: 1
 num_gpu: 16
 manual_seed: 10
 
 datasets:
-
   train:
-    name: bsergb-train
-    type: RuisiEventRecurrentDataset
-    dataroot: /work/HAIRDESC/naran/datasets/EDVFI/BSERGB_3_1
-
-    # interpolation settings
-    num_end_interpolation: 3 # m
-    num_inter_interpolation: 1 # n
-    # voxel settings
+    name: gopro-small-twoblur-train
+    type: GoProRawEventRecurrentDataset
+    # dataroot: /work/HAIRDESC/naran/datasets/EDVFI/gopro_small
+    dataroot: /work/HAIRDESC/naran/datasets/EDVFI/GOPRO_Large
+    num_end_interpolation: 11
+    num_inter_interpolation: 3
     norm_voxel: true
     one_voxel_flag: true
     return_deblur_voxel: true
-    filter_invalid_sequences: true
-
     filename_tmpl: '{}'
     io_backend:
       type: disk
-
-    # augment
     gt_size: 256
     use_hflip: true
     use_rot: true
     random_reverse: false
-    # data loader settings
     use_shuffle: true
     num_worker_per_gpu: 4
-    batch_size_per_gpu: 4
+    batch_size_per_gpu: 2
     dataset_enlarge_ratio: 8
     prefetch_mode: ~
-
   val:
-    name: bsergb-test
-    type: RuisiEventRecurrentDataset
-    dataroot: /work/HAIRDESC/naran/datasets/EDVFI/BSERGB_3_1
-
-    # interpolation settings
-    num_end_interpolation: 3 # m
-    num_inter_interpolation: 1 # n
-    # voxel settings
+    name: gopro-small-twoblur-test
+    type: GoProRawEventRecurrentDataset
+    # dataroot: /work/HAIRDESC/naran/datasets/EDVFI/gopro_small
+    dataroot: /work/HAIRDESC/naran/datasets/EDVFI/GOPRO_Large
+    num_end_interpolation: 11
+    num_inter_interpolation: 3
     norm_voxel: true
     one_voxel_flag: true
     return_deblur_voxel: true
-    filter_invalid_sequences: true
-
     io_backend:
       type: disk
-
     gt_size: 256
     use_hflip: false
     use_rot: false
 
-dataset_name: BSERGB
+dataset_name: GoPro
 
-# network structures
 network_g:
-  type: FinalBidirectionAttenfusion
-  img_chn: 10 # 3 RGB + 2 left deblur voxel + 3 RGB + 2 right deblur voxel
+  type: AbDeblurBranch
+  img_chn: 26
   ev_chn: 2
   num_encoders: 3
   base_num_channels: 32
   num_block: 1
   num_residual_blocks: 2
+  deblur_event_chn: 10
+  gate_type: spatial
+  use_selection_gate: true
+  use_frequency_correction: true
+  use_residual_gate: true
 
-# path
 path:
   pretrain_network_g: ~
   strict_load_g: true
-  resume_state: /work/HAIRDESC/naran/E_D_VFI/experiments/Final_BSERGB_3_1/training_states/50000.state
+  resume_state: ~
   training_states: ~
 
-# training settings
 train:
   optim_g:
     type: AdamW
     lr: !!float 2e-4
     weight_decay: !!float 1e-4
     betas: [0.9, 0.99]
-
   scheduler:
     type: TrueCosineAnnealingLR
     T_max: 200000
     eta_min: !!float 1e-7
-
-  total_iter: 100000
+  total_iter: 200000
   warmup_iter: -1
-
-  # losses
   pixel_opt:
     type: CharbonnierLoss
     loss_weight: 1
     reduction: mean
 
-# validation settings
 val:
   val_freq: !!float 2000
   save_img: false
   grids: ~
   crop_size: ~
-
   max_minibatch: 2
-
   metrics_deblur:
     psnr:
       type: calculate_psnr
@@ -118,7 +98,6 @@ val:
       type: calculate_ssim
       crop_border: 0
       test_y_channel: false
-
   metrics_interpo:
     psnr:
       type: calculate_psnr
@@ -129,14 +108,12 @@ val:
       crop_border: 0
       test_y_channel: false
 
-# logging settings
 logger:
   print_freq: 200
-  save_checkpoint_freq: !!float 5000
+  save_checkpoint_freq: !!float 10000
   max_keep_checkpoints: 3
   use_tb_logger: true
 
-# dist training settings
 dist_params:
   backend: nccl
   port: 29500

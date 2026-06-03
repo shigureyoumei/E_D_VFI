@@ -110,7 +110,7 @@ train:
 
 # validation settings
 val:
-  val_freq: !!float 1e4 # 2e4
+  val_freq: !!float 2000 # 2e4
   save_img: true  
   save_gt: false
   grids: ~  
@@ -140,7 +140,7 @@ val:
 # logging settings
 logger:
   print_freq: 200
-  save_checkpoint_freq: !!float 2e3
+  save_checkpoint_freq: !!float 5000
   max_keep_checkpoints: 3
   use_tb_logger: true
   # wandb:
