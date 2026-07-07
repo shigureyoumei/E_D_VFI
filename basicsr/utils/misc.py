@@ -23,15 +23,13 @@ def get_time_str():
 
 
 def mkdir_and_rename(path):
-    """mkdirs. If path exists, rename it with timestamp and create a new one.
+    """Create a directory, reusing it when it already exists.
 
     Args:
         path (str): Folder path.
     """
     if osp.exists(path):
-        new_name = path + '_archived_' + get_time_str()
-        print(f'Path already exists. Rename it to {new_name}', flush=True)
-        os.rename(path, new_name)
+        print(f'Path already exists. Reuse it: {path}', flush=True)
     os.makedirs(path, exist_ok=True)
 
 

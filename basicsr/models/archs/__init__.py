@@ -57,6 +57,14 @@ def define_network(opt):
         ablation_module = importlib.import_module(
             'basicsr.models.archs.ablation.TAb_DeblurBranch_Gopro_small')
         cls_ = find_arch_class([ablation_module], network_type)
+    if cls_ is None and network_type == 'AbSTMDeblurBranch':
+        ablation_module = importlib.import_module(
+            'basicsr.models.archs.ablation.Ab_STM_Db')
+        cls_ = find_arch_class([ablation_module], network_type)
+    if cls_ is None and network_type == 'AbSTMDeblurPostFusionBranch':
+        ablation_module = importlib.import_module(
+            'basicsr.models.archs.ablation.Ab_STM_Db_PostFusion')
+        cls_ = find_arch_class([ablation_module], network_type)
     if cls_ is None and network_type == 'AbFusionBlock':
         ablation_module = importlib.import_module(
             'basicsr.models.archs.ablation.Ab_FusionBlock')

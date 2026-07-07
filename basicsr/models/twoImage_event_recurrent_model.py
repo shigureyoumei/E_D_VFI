@@ -115,18 +115,25 @@ class TwoImageEventRecurrentRestorationModel(BaseModel):
     def transpose(self, t, trans_idx):
         # print('transpose jt .. ', t.size())
         if trans_idx >= 4:
-            t = torch.flip(t, [3])
-        return torch.rot90(t, trans_idx % 4, [2, 3])
+            t = torch.flip(t, [-1])
+        return torch.rot90(t, trans_idx % 4, [-2, -1])
 
     def transpose_inverse(self, t, trans_idx):
         # print( 'inverse transpose .. t', t.size())
-        t = torch.rot90(t, 4 - trans_idx % 4, [2, 3])
+        t = torch.rot90(t, 4 - trans_idx % 4, [-2, -1])
         if trans_idx >= 4:
-            t = torch.flip(t, [3])
+            t = torch.flip(t, [-1])
         return t
 
     def grids_voxel(self):
-        b, c, h, w = self.voxel.size()
+        if self.voxel.dim() == 4:
+            b, c, h, w = self.voxel.size()
+        elif self.voxel.dim() == 5:
+            b, t, c, h, w = self.voxel.size()
+        else:
+            raise RuntimeError(
+                f'grids_voxel expects 4D or 5D voxel, got {tuple(self.voxel.size())}.'
+            )
         self.original_size_voxel = self.voxel.size()
         assert b == 1
         crop_size = self.opt['val'].get('crop_size')
@@ -166,7 +173,11 @@ class TwoImageEventRecurrentRestorationModel(BaseModel):
                 # from i, j to i+crop_szie, j + crop_size
                 # print(' trans 8')
                 for trans_idx in range(self.opt['val'].get('trans_num', 1)):
-                    parts.append(self.transpose(self.voxel[:, :, i:i + crop_size, j:j + crop_size], trans_idx))
+                    if self.voxel.dim() == 4:
+                        voxel_part = self.voxel[:, :, i:i + crop_size, j:j + crop_size]
+                    else:
+                        voxel_part = self.voxel[:, :, :, i:i + crop_size, j:j + crop_size]
+                    parts.append(self.transpose(voxel_part, trans_idx))
                     idxes.append({'i': i, 'j': j, 'trans_idx': trans_idx})
                     # cnt_idx += 1
                 j = j + step_j
@@ -177,7 +188,11 @@ class TwoImageEventRecurrentRestorationModel(BaseModel):
                 i = random.randint(0, h-crop_size)
                 j = random.randint(0, w-crop_size)
                 trans_idx = random.randint(0, self.opt['val'].get('trans_num', 1) - 1)
-                parts.append(self.transpose(self.voxel[:, :, i:i + crop_size, j:j + crop_size], trans_idx))
+                if self.voxel.dim() == 4:
+                    voxel_part = self.voxel[:, :, i:i + crop_size, j:j + crop_size]
+                else:
+                    voxel_part = self.voxel[:, :, :, i:i + crop_size, j:j + crop_size]
+                parts.append(self.transpose(voxel_part, trans_idx))
                 idxes.append({'i': i, 'j': j, 'trans_idx': trans_idx})
 
 
@@ -250,20 +265,34 @@ class TwoImageEventRecurrentRestorationModel(BaseModel):
         self.idxes = idxes
 
     def grids_inverse(self):
-        preds = torch.zeros(self.original_size).to(self.device)
         b, c, h, w = self.original_size
+        if self.output.dim() == 4:
+            preds = torch.zeros(self.original_size).to(self.device)
+            count_mt = torch.zeros((b, 1, h, w)).to(self.device)
+        elif self.output.dim() == 5:
+            _, t, out_c, _, _ = self.output.size()
+            preds = torch.zeros((b, t, out_c, h, w)).to(self.device)
+            count_mt = torch.zeros((b, 1, 1, h, w)).to(self.device)
+        else:
+            raise RuntimeError(
+                f'grids_inverse expects 4D or 5D output, got {tuple(self.output.size())}.'
+            )
 
         print('...', self.device)
 
-        count_mt = torch.zeros((b, 1, h, w)).to(self.device)
         crop_size = self.opt['val'].get('crop_size')
 
         for cnt, each_idx in enumerate(self.idxes):
             i = each_idx['i']
             j = each_idx['j']
             trans_idx = each_idx['trans_idx']
-            preds[0, :, i:i + crop_size, j:j + crop_size] += self.transpose_inverse(self.output[cnt, :, :, :].unsqueeze(0), trans_idx).squeeze(0)
-            count_mt[0, 0, i:i + crop_size, j:j + crop_size] += 1.
+            output_part = self.transpose_inverse(self.output[cnt].unsqueeze(0), trans_idx).squeeze(0)
+            if self.output.dim() == 4:
+                preds[0, :, i:i + crop_size, j:j + crop_size] += output_part
+                count_mt[0, 0, i:i + crop_size, j:j + crop_size] += 1.
+            else:
+                preds[0, :, :, i:i + crop_size, j:j + crop_size] += output_part
+                count_mt[0, 0, 0, i:i + crop_size, j:j + crop_size] += 1.
 
         self.output = preds / count_mt
         self.lq = self.origin_lq
@@ -285,6 +314,16 @@ class TwoImageEventRecurrentRestorationModel(BaseModel):
 
             l_total += l_pix
             loss_dict['l_pix'] = l_pix
+            log_middle_loss = self.opt['train'].get('log_middle_frames_loss', False)
+            mid_count = self.opt['datasets']['train'].get('num_inter_interpolation', 0)
+            if log_middle_loss and mid_count > 0 and pred.dim() == 5:
+                mid_start = (pred.size(1) - mid_count) // 2
+                mid_end = mid_start + mid_count
+                l_pix_mid = self.cri_pix(
+                    pred[:, mid_start:mid_end],
+                    self.gt[:, mid_start:mid_end],
+                )
+                loss_dict['l_pix_mid3'] = l_pix_mid
         # perceptual loss
         # if self.cri_perceptual:
         #
@@ -363,6 +402,7 @@ class TwoImageEventRecurrentRestorationModel(BaseModel):
         self.n = self.opt['datasets']['val'].get('num_inter_interpolation')
         imgs_per_iter_deblur = 2*self.m
         imgs_per_iter_interpo = self.n
+        log_middle_metrics = self.opt['val'].get('log_middle_frames_metrics', False)
 
         with_metrics = self.opt['val'].get('metrics_deblur') is not None
         if with_metrics:
@@ -374,6 +414,11 @@ class TwoImageEventRecurrentRestorationModel(BaseModel):
                 metric: 0
                 for metric in self.opt['val']['metrics_interpo'].keys()
             }
+            if log_middle_metrics:
+                self.metric_results_middle3 = {
+                    metric: 0
+                    for metric in self.opt['val']['metrics_interpo'].keys()
+                }
             self.metric_results_total = {
                 metric: 0
                 for metric in self.metric_results_deblur.keys()
@@ -467,8 +512,11 @@ class TwoImageEventRecurrentRestorationModel(BaseModel):
                         if frame_idx >= self.m and frame_idx< self.m + self.n: # interpo
                             for name, opt_ in opt_metric_interpo.items(): # name: psnr, ...; opt_: type, ...
                                 metric_type = opt_.pop('type') # calculate_psnr or calculate_ssim
-                                self.metric_results_interpo[name] += getattr(
+                                metric_value = getattr(
                                     metric_module, metric_type)(sr_img, gt_img, **opt_)
+                                self.metric_results_interpo[name] += metric_value
+                                if log_middle_metrics:
+                                    self.metric_results_middle3[name] += metric_value
                         # deblur
                         else:
                             for name, opt_ in opt_metric_deblur.items(): # name: psnr, ...; opt_: type, ...
@@ -481,8 +529,11 @@ class TwoImageEventRecurrentRestorationModel(BaseModel):
                         if frame_idx >= self.m and frame_idx< self.m + self.n: # interpo
                             for name, opt_ in opt_metric_interpo.items(): # name: psnr, ...; opt_: type, ...
                                 metric_type = opt_.pop('type') # calculate_psnr or calculate_ssim
-                                self.metric_results_interpo[name] += getattr(
+                                metric_value = getattr(
                                 metric_module, metric_type)(visuals['result'], visuals['gt'], **opt_)
+                                self.metric_results_interpo[name] += metric_value
+                                if log_middle_metrics:
+                                    self.metric_results_middle3[name] += metric_value
                         # deblur
                         else:
                             for name, opt_ in opt_metric_deblur.items(): # name: psnr, ...; opt_: type, ...
@@ -504,6 +555,8 @@ class TwoImageEventRecurrentRestorationModel(BaseModel):
 
             for metric in self.metric_results_interpo.keys():
                 self.metric_results_interpo[metric] /= (cnt * imgs_per_iter_interpo)
+                if log_middle_metrics:
+                    self.metric_results_middle3[metric] /= (cnt * imgs_per_iter_interpo)
                 current_metric = self.metric_results_interpo[metric]
 
             self._log_validation_metric_values(current_iter, dataset_name,
@@ -534,6 +587,12 @@ class TwoImageEventRecurrentRestorationModel(BaseModel):
             log_str += f'\t # {metric}: {value:.4f}'
         logger = get_root_logger()
         logger.info(log_str)
+        if hasattr(self, 'metric_results_middle3'):
+            # explicit alias for the middle three interpolation targets:
+            log_str = f'Validation {dataset_name} [middle3],\t'
+            for metric, value in self.metric_results_middle3.items():
+                log_str += f'\t # {metric}: {value:.4f}'
+            logger.info(log_str)
 
         if tb_logger:
             for metric, value in self.metric_results_deblur.items():

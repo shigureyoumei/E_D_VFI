@@ -53,18 +53,25 @@ class TestTwoImageEventRecurrentRestorationModel(BaseModel):
     def transpose(self, t, trans_idx):
         # print('transpose jt .. ', t.size())
         if trans_idx >= 4:
-            t = torch.flip(t, [3])
-        return torch.rot90(t, trans_idx % 4, [2, 3])
+            t = torch.flip(t, [-1])
+        return torch.rot90(t, trans_idx % 4, [-2, -1])
 
     def transpose_inverse(self, t, trans_idx):
         # print( 'inverse transpose .. t', t.size())
-        t = torch.rot90(t, 4 - trans_idx % 4, [2, 3])
+        t = torch.rot90(t, 4 - trans_idx % 4, [-2, -1])
         if trans_idx >= 4:
-            t = torch.flip(t, [3])
+            t = torch.flip(t, [-1])
         return t
 
     def grids_voxel(self):
-        b, c, h, w = self.voxel.size()
+        if self.voxel.dim() == 4:
+            b, c, h, w = self.voxel.size()
+        elif self.voxel.dim() == 5:
+            b, t, c, h, w = self.voxel.size()
+        else:
+            raise RuntimeError(
+                f'grids_voxel expects 4D or 5D voxel, got {tuple(self.voxel.size())}.'
+            )
         self.original_size_voxel = self.voxel.size()
         assert b == 1
         crop_size = self.opt['val'].get('crop_size')
@@ -104,7 +111,11 @@ class TestTwoImageEventRecurrentRestorationModel(BaseModel):
                 # from i, j to i+crop_szie, j + crop_size
                 # print(' trans 8')
                 for trans_idx in range(self.opt['val'].get('trans_num', 1)):
-                    parts.append(self.transpose(self.voxel[:, :, i:i + crop_size, j:j + crop_size], trans_idx))
+                    if self.voxel.dim() == 4:
+                        voxel_part = self.voxel[:, :, i:i + crop_size, j:j + crop_size]
+                    else:
+                        voxel_part = self.voxel[:, :, :, i:i + crop_size, j:j + crop_size]
+                    parts.append(self.transpose(voxel_part, trans_idx))
                     idxes.append({'i': i, 'j': j, 'trans_idx': trans_idx})
                     # cnt_idx += 1
                 j = j + step_j
@@ -115,7 +126,11 @@ class TestTwoImageEventRecurrentRestorationModel(BaseModel):
                 i = random.randint(0, h-crop_size)
                 j = random.randint(0, w-crop_size)
                 trans_idx = random.randint(0, self.opt['val'].get('trans_num', 1) - 1)
-                parts.append(self.transpose(self.voxel[:, :, i:i + crop_size, j:j + crop_size], trans_idx))
+                if self.voxel.dim() == 4:
+                    voxel_part = self.voxel[:, :, i:i + crop_size, j:j + crop_size]
+                else:
+                    voxel_part = self.voxel[:, :, :, i:i + crop_size, j:j + crop_size]
+                parts.append(self.transpose(voxel_part, trans_idx))
                 idxes.append({'i': i, 'j': j, 'trans_idx': trans_idx})
 
 
@@ -188,20 +203,34 @@ class TestTwoImageEventRecurrentRestorationModel(BaseModel):
         self.idxes = idxes
 
     def grids_inverse(self):
-        preds = torch.zeros(self.original_size).to(self.device)
         b, c, h, w = self.original_size
+        if self.output.dim() == 4:
+            preds = torch.zeros(self.original_size).to(self.device)
+            count_mt = torch.zeros((b, 1, h, w)).to(self.device)
+        elif self.output.dim() == 5:
+            _, t, out_c, _, _ = self.output.size()
+            preds = torch.zeros((b, t, out_c, h, w)).to(self.device)
+            count_mt = torch.zeros((b, 1, 1, h, w)).to(self.device)
+        else:
+            raise RuntimeError(
+                f'grids_inverse expects 4D or 5D output, got {tuple(self.output.size())}.'
+            )
 
         print('...', self.device)
 
-        count_mt = torch.zeros((b, 1, h, w)).to(self.device)
         crop_size = self.opt['val'].get('crop_size')
 
         for cnt, each_idx in enumerate(self.idxes):
             i = each_idx['i']
             j = each_idx['j']
             trans_idx = each_idx['trans_idx']
-            preds[0, :, i:i + crop_size, j:j + crop_size] += self.transpose_inverse(self.output[cnt, :, :, :].unsqueeze(0), trans_idx).squeeze(0)
-            count_mt[0, 0, i:i + crop_size, j:j + crop_size] += 1.
+            output_part = self.transpose_inverse(self.output[cnt].unsqueeze(0), trans_idx).squeeze(0)
+            if self.output.dim() == 4:
+                preds[0, :, i:i + crop_size, j:j + crop_size] += output_part
+                count_mt[0, 0, i:i + crop_size, j:j + crop_size] += 1.
+            else:
+                preds[0, :, :, i:i + crop_size, j:j + crop_size] += output_part
+                count_mt[0, 0, 0, i:i + crop_size, j:j + crop_size] += 1.
 
         self.output = preds / count_mt
         self.lq = self.origin_lq
